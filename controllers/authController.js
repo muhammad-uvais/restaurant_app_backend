@@ -1,25 +1,40 @@
 const User = require("../models/User");
 const bcrypt = require("bcryptjs");
 const generateToken = require("../utils/generateToken");
+const QRCode = require("qrcode");
 
 // US
 exports.registerUser = async (req, res) => {
   try {
-    const { name, email, password } = req.body;
-    const userExists = await User.findOne({ email });
+    const { name, email, password, domain } = req.body;
 
+    const userExists = await User.findOne({ email });
     if (userExists) {
       return res.status(400).json({ message: "User already exists" });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    const user = await User.create({ name, email, password: hashedPassword });
+
+    // Generate QR code from domain (as base64)
+    const qrCode = await QRCode.toDataURL(domain);
+
+    // Create the user with domain and qrCode
+    const user = await User.create({
+      name,
+      email,
+      password: hashedPassword,
+      domain,
+      qrCode,
+    });
+
     const token = generateToken(user._id);
 
     res.status(201).json({
       _id: user._id,
       name: user.name,
       email: user.email,
+      domain: user.domain,
+      qrCode: user.qrCode, // base64 image string
       token,
     });
   } catch (err) {
