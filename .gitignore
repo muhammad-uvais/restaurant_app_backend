@@ -1,0 +1,30 @@
+# Node modules
+node_modules/
+
+# Environment variables
+.env
+
+# Logs
+logs
+*.log
+
+# OS/system files
+.DS_Store
+Thumbs.db
+
+# Build output
+dist/
+build/
+
+# IDE settings
+.vscode/
+.idea/
+
+# Uploads/temp
+uploads/
+tmp/
+
+# Coverage reports
+coverage/
+
+package-lock.json
