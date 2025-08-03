@@ -7,6 +7,7 @@ const userSchema = new mongoose.Schema(
     email: { type: String, required: true, unique: true },
     password: { type: String, required: true },
     domain: { type: String, required: true },  // add domain
+    restaurant: { type: String, required: true, unique: true},
     qrCode: { type: String },                  // base64 QR code for the domain
     // Future: role (owner/user)
   },

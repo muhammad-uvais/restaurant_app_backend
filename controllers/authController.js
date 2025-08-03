@@ -6,7 +6,7 @@ const QRCode = require("qrcode");
 // US
 exports.registerUser = async (req, res) => {
   try {
-    const { name, email, password, domain } = req.body;
+    const { name, email, password, domain, restaurant } = req.body;
 
     const userExists = await User.findOne({ email });
     if (userExists) {
@@ -16,14 +16,15 @@ exports.registerUser = async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
 
     // Generate QR code from domain (as base64)
-    const qrCode = await QRCode.toDataURL(domain);
+    const qrData = `http://${domain}/api/menu/public/${restaurant}`;
+    const qrCode = await QRCode.toDataURL(qrData);
 
-    // Create the user with domain and qrCode
     const user = await User.create({
       name,
       email,
       password: hashedPassword,
       domain,
+      restaurant,
       qrCode,
     });
 
@@ -34,6 +35,7 @@ exports.registerUser = async (req, res) => {
       name: user.name,
       email: user.email,
       domain: user.domain,
+      restaurant: user.restaurant,
       qrCode: user.qrCode, // base64 image string
       token,
     });
