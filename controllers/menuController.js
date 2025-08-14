@@ -67,7 +67,7 @@ exports.addMenuItem = async (req, res) => {
       category,
       available,
       image,
-      // user: req.user._id,
+      user: "689c8aa342cdb8a4fae32deb",
     });
 
     await newItem.save();
