@@ -10,11 +10,20 @@ const menuItemSchema = new mongoose.Schema(
       url: { type: String, required: true },
       public_id: { type: String, required: true },
     },
+    type: {
+      type: String,
+      enum: ["veg", "non-veg"],
+      required: true
+    },
     category: String,
+    available: {
+      type: Boolean,
+      default: true // menu item is available by default
+    },
     user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User", // reference to the User model (admin/restaurant owner)
-      required: true
+      required: false
     },
   },
   { timestamps: true }

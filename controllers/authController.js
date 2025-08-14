@@ -2,6 +2,7 @@ const User = require("../models/User");
 const bcrypt = require("bcryptjs");
 const generateToken = require("../utils/generateToken");
 const QRCode = require("qrcode");
+const { uploadToCloudinary } = require("../utils/cloudinary")
 
 // US
 exports.registerUser = async (req, res) => {
@@ -19,12 +20,24 @@ exports.registerUser = async (req, res) => {
     const qrData = `http://${domain}/api/menu/public/${restaurant}`;
     const qrCode = await QRCode.toDataURL(qrData);
 
+    let logo = null;
+
+    // Upload to Cloudinary if image is present
+    if (req.file) {
+      const result = await uploadToCloudinary(req.file.buffer);
+      logo = {
+        url: result.secure_url,
+        public_id: result.public_id,
+      };
+    }
+
     const user = await User.create({
       name,
       email,
       password: hashedPassword,
       domain,
       restaurant,
+      logo,
       qrCode,
     });
 
@@ -36,6 +49,7 @@ exports.registerUser = async (req, res) => {
       email: user.email,
       domain: user.domain,
       restaurant: user.restaurant,
+      logo: user.logo,
       qrCode: user.qrCode, // base64 image string
       token,
     });

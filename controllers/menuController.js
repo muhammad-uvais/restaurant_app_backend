@@ -3,39 +3,46 @@ const MenuItem = require("../models/MenuItem");
 const User = require("../models/User")
 const { uploadToCloudinary, deleteFromCloudinary } = require("../utils/cloudinary")
 
-
+// client side get menu items
 exports.getMenuByDomain = async (req, res) => {
   const { restaurant } = req.params;
 
   try {
     // 1. Find the restaurant/admin (user) using the domain
-    const user = await User.findOne({ restaurant });
+    const user = await User.findOne({ restaurant }).lean();
     if (!user) {
       return res.status(404).json({ message: "Restaurant not found." });
     }
 
     // 2. Find all menu items created by that user
-    const menuItems = await MenuItem.find({ user: user._id });
-    res.status(200).json(menuItems);
+    const menuItems = await MenuItem.find({ user: user._id }).lean();
+
+    // 3. Return both restaurant details and menu items
+    res.status(200).json({
+      restaurant: user,   // restaurant details
+      menu: menuItems     // menu items
+    });
+
   } catch (err) {
     res.status(500).json({ message: "Server error", error: err.message });
   }
 };
 
-// Customer
+
+// admin side get menu items
 exports.getMenuItems = async (req, res) => {
   try {
-    const menuItems = await MenuItem.find({ user: req.user._id });
+    const menuItems = await MenuItem.find({});
     res.json(menuItems);
   } catch (error) {
     res.status(500).json({ error: "Server error" });
   }
 };
 
-// OWNER
+// admin
 exports.addMenuItem = async (req, res) => {
   try {
-    const { name, description, price, category, avaialable } = req.body;
+    const { name, description, price, type, category, available } = req.body;
     let image = null;
 
     // Upload to Cloudinary if image is present
@@ -48,18 +55,19 @@ exports.addMenuItem = async (req, res) => {
     }
 
     // Make sure req.user is available
-    if (!req.user || !req.user._id) {
-      return res.status(401).json({ error: "Unauthorized: User not found in request" });
-    }
+    // if (!req.user || !req.user._id) {
+    //   return res.status(401).json({ error: "Unauthorized: User not found in request" });
+    // }
 
     const newItem = new MenuItem({
       name,
       description,
       price,
+      type,
       category,
-      avaialable,
+      available,
       image,
-      user: req.user._id,
+      // user: req.user._id,
     });
 
     await newItem.save();
@@ -70,9 +78,7 @@ exports.addMenuItem = async (req, res) => {
 };
 
 
-
-
-// OWNER
+// admin
 exports.updateMenuItem = async (req, res) => {
   const { id } = req.params;
 
@@ -101,7 +107,7 @@ exports.updateMenuItem = async (req, res) => {
 };
 
 
-// OWNER
+// admin
 exports.deleteMenuItem = async (req, res) => {
   try {
     await MenuItem.findByIdAndDelete(req.params.id);
@@ -111,7 +117,7 @@ exports.deleteMenuItem = async (req, res) => {
   }
 };
 
-// OWNER
+// admin
 exports.toggleAvailability = async (req, res) => {
   try {
     const item = await MenuItem.findById(req.params.id);
