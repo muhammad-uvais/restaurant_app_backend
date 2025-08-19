@@ -1,23 +1,43 @@
 // controllers/orderController.js
 const Order = require("../models/Order");
+// const MenuItem = require("../models/MenuItem")
+const User = require('../models/User');
 
 
-// Customer
+// Public: Place order using restaurant in params
 exports.createOrder = async (req, res) => {
   try {
-    const { tableId, items } = req.body;
-    const newOrder = await Order.create({ tableId, items });
-    res.status(201).json(newOrder);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
+    const { restaurant } = req.params;
+    const { customerName, customerPhone, items, totalAmount, tableId } = req.body;
+
+    // 1. Find the restaurant/admin (user) using the domain
+    const user = await User.findOne({ restaurant }).lean();
+    if (!user) {
+      return res.status(404).json({ message: "Restaurant not found." });
+    }
+
+    const order = new Order({
+      user: user._id,   // store reference to restaurant's user
+      customerName,
+      customerPhone,
+      items,
+      totalAmount,
+      tableId
+    });
+
+    await order.save();
+
+    res.status(201).json({ message: "Order placed successfully", order });
+  } catch (error) {
+    console.error("Error creating order:", error);
+    res.status(500).json({ message: "Server error" });
   }
 };
 
-
-//Restaurant Owner
+//Admin
 exports.getAllOrders = async (req, res) => {
   try {
-    const orders = await Order.find().populate("items.menuItem");
+    const orders = await Order.find({});
     res.status(200).json(orders);
   } catch (err) {
     res.status(500).json({ message: err.message });
