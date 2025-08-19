@@ -6,7 +6,7 @@ const storage = multer.memoryStorage(); // No need to store files locally
 
 // Define file filter to accept only certain types of files
 const fileFilter = (req, file, cb) => {
-  const allowedFileTypes = /jpeg|jpg|png|gif|pdf|doc/;
+  const allowedFileTypes = /jpeg|jpg|png|gif|avif|pdf|doc/;
   const extname = allowedFileTypes.test(path.extname(file.originalname).toLowerCase());
   const mimetype = allowedFileTypes.test(file.mimetype);
 
