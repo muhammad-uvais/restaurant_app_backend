@@ -1,4 +1,5 @@
 const cloudinary = require('cloudinary').v2;
+const streamifier = require("streamifier");
 require('dotenv').config();
 
 // Cloudinary configuration
@@ -14,16 +15,20 @@ cloudinary.config({
  * @returns {Promise<Object>} - A promise that resolves to the Cloudinary upload result.
  */
 const uploadToCloudinary = (fileBuffer) => {
-    return new Promise((resolve, reject) => {
-        const stream = cloudinary.uploader.upload_stream((error, result) => {
-            if (error) {
-                reject(new Error('Cloudinary Upload Error: ' + error.message));
-            } else {
-                resolve(result);
-            }
-        });
-        stream.end(fileBuffer); // Use the file buffer from multer's memoryStorage
-    });
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      (error, result) => {
+        if (error) {
+          reject(new Error("Cloudinary Upload Error: " + error.message));
+        } else {
+          resolve(result);
+        }
+      }
+    );
+
+    // Pipe buffer to Cloudinary
+    streamifier.createReadStream(fileBuffer).pipe(stream);
+  });
 };
 
 // Function to delete image from Cloudinary
