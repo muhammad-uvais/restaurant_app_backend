@@ -44,6 +44,48 @@ exports.getAllOrders = async (req, res) => {
   }
 };
 
+
+exports.updateOrder = async (req, res) => {
+  try {
+    const { orderId } = req.params; // order id
+    const updates = req.body;  // fields to update
+
+    const order = await Order.findByIdAndUpdate(
+      orderId,
+      updates,
+      { new: true } // return updated doc
+    );
+
+    if (!order) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    res.json({ message: "Order updated successfully from Admin", order });
+  } catch (error) {
+    console.error("Error updating order:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+// Delete order admin
+exports.cancelOrder = async (req, res) => {
+  try {
+    const { orderId } = req.params; // order id
+
+    const order = await Order.findByIdAndDelete(orderId);
+
+    if (!order) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    res.json({ message: "Admin cancelled order successfully" });
+  } catch (error) {
+    console.error("Error cancelling order:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+
 //Restaurant Owner - Not confirm yet
 exports.updateOrderStatus = async (req, res) => {
   try {
