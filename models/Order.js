@@ -16,13 +16,14 @@ const orderSchema = new mongoose.Schema({
 
   items: [
     {
-      menuItem: {
+      menuItemId: {
         type: mongoose.Schema.Types.ObjectId,
-        ref: "Menu", 
+        ref: "MenuItem", 
         required: true,
       },
       quantity: { type: Number, required: true },
       price: { type: Number, required: true },
+      name: { type: String, required: true}
     },
   ],
 
