@@ -75,6 +75,10 @@ exports.loginUser = async (req, res) => {
       _id: user._id,
       name: user.name,
       email: user.email,
+      domain: user.domain,         
+      restaurant: user.restaurant,  
+      logo: user.logo,              
+      qrCode: user.qrCode,
       token,
     });
   } catch (err) {
