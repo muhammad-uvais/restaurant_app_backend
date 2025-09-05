@@ -15,6 +15,6 @@ router.delete("/:orderId", orderController.cancelOrder);
 
 
 // Update order status
-router.patch("/:orderId", orderController.updateOrderStatus);
+// router.patch("/:orderId", orderController.updateOrderStatus);
 
 module.exports = router;

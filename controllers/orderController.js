@@ -8,7 +8,7 @@ const User = require('../models/User');
 exports.createOrder = async (req, res) => {
   try {
     const { restaurant } = req.params;
-    const { customerName, customerPhone, items, totalAmount, tableId, status } = req.body;
+    const { customerName, customerPhone, items, totalAmount, tableId } = req.body;
 
     // 1. Find the restaurant/admin (user) using the domain
     const user = await User.findOne({ restaurant }).lean();
@@ -22,8 +22,7 @@ exports.createOrder = async (req, res) => {
       customerPhone,
       items,
       totalAmount,
-      tableId,
-      status
+      tableId
     });
 
     await order.save();
