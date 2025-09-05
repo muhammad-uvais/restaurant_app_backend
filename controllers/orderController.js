@@ -8,7 +8,7 @@ const User = require('../models/User');
 exports.createOrder = async (req, res) => {
   try {
     const { restaurant } = req.params;
-    const { customerName, customerPhone, items, totalAmount, tableId } = req.body;
+    const { customerName, customerPhone, items, totalAmount, tableId, status } = req.body;
 
     // 1. Find the restaurant/admin (user) using the domain
     const user = await User.findOne({ restaurant }).lean();
@@ -22,7 +22,8 @@ exports.createOrder = async (req, res) => {
       customerPhone,
       items,
       totalAmount,
-      tableId
+      tableId,
+      status
     });
 
     await order.save();
@@ -82,22 +83,5 @@ exports.cancelOrder = async (req, res) => {
   } catch (error) {
     console.error("Error cancelling order:", error);
     res.status(500).json({ message: "Server error" });
-  }
-};
-
-
-//Restaurant Owner - Not confirm yet
-exports.updateOrderStatus = async (req, res) => {
-  try {
-    const { orderId } = req.params;
-    const { status } = req.body;
-    const order = await Order.findByIdAndUpdate(
-      orderId,
-      { status },
-      { new: true }
-    );
-    res.status(200).json(order);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
   }
 };
