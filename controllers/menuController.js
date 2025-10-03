@@ -28,12 +28,38 @@ exports.getMenuByDomain = async (req, res) => {
   }
 };
 
+exports.getMenuByTenant = async (req, res) => {
+  try {
+    const { tenantAdminId, tenantRestaurantName } = req;
+
+    if (!tenantAdminId) {
+      return res.status(404).json({ message: "Tenant not found" });
+    }
+
+    const menuItems = await MenuItem.find({ user: tenantAdminId, deleted: false });
+
+    res.status(200).json({
+      message: `Menu Items from restaurant: ${tenantRestaurantName}`, // 👈 print restaurant name
+      menu: menuItems,
+    });
+  } catch (err) {
+    console.error("Get menu items error:", err);
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+};
+
+
 
 // admin side get menu items
 exports.getMenuItems = async (req, res) => {
   try {
-    const menuItems = await MenuItem.find({});
-    res.json(menuItems);
+    const user = req.user;
+    if (!user) return res.status(401).json({ message: "Unauthorized" });
+    const menuItems = await MenuItem.find({ user: user._id, deleted: false });
+    res.status(200).json({
+      message: `Menu Items fetched successfully`,
+      menu: menuItems,
+    });
   } catch (error) {
     res.status(500).json({ error: "Server error" });
   }
@@ -55,9 +81,9 @@ exports.addMenuItem = async (req, res) => {
     }
 
     // Make sure req.user is available
-    // if (!req.user || !req.user._id) {
-    //   return res.status(401).json({ error: "Unauthorized: User not found in request" });
-    // }
+    if (!req.user || !req.user._id) {
+      return res.status(401).json({ error: "Unauthorized: User not found in request" });
+    }
 
     const newItem = new MenuItem({
       name,
@@ -67,7 +93,7 @@ exports.addMenuItem = async (req, res) => {
       category,
       available,
       image,
-      user: "68a09fd9138dc283a2802ac1",
+      user: req.user._id,
     });
 
     await newItem.save();
@@ -110,12 +136,23 @@ exports.updateMenuItem = async (req, res) => {
 // admin
 exports.deleteMenuItem = async (req, res) => {
   try {
-    await MenuItem.findByIdAndDelete(req.params.id);
-    res.json({ message: "Item deleted" });
+    const item = await MenuItem.findById(req.params.id);
+
+    if (!item) {
+      return res.status(404).json({ message: "Menu item not found" });
+    }
+
+    // Soft delete instead of removing from DB
+    item.deleted = true;
+    await item.save();
+
+    res.status(200).json({ message: "Menu item soft deleted successfully" });
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    console.error("Delete error:", err);
+    res.status(500).json({ error: "Server error" });
   }
 };
+
 
 // admin
 exports.toggleAvailability = async (req, res) => {

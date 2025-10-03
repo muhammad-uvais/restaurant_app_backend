@@ -25,6 +25,7 @@ const menuItemSchema = new mongoose.Schema(
       ref: "User", // reference to the User model (admin/restaurant owner)
       required: false
     },
+    deleted: { type: Boolean, default: false }, 
   },
   { timestamps: true }
 );

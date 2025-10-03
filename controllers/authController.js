@@ -2,59 +2,54 @@ const User = require("../models/User");
 const bcrypt = require("bcryptjs");
 const generateToken = require("../utils/generateToken");
 const QRCode = require("qrcode");
-const { uploadToCloudinary } = require("../utils/cloudinary")
 
 // US
 exports.registerUser = async (req, res) => {
   try {
-    const { name, email, password, domain, restaurant } = req.body;
+    const { name, email, password, domain, restaurantName } = req.body;
 
-    const userExists = await User.findOne({ email });
-    if (userExists) {
-      return res.status(400).json({ message: "User already exists" });
+    // 1️⃣ Check if email or restaurantName already exists
+    const existingUser = await User.findOne({ email });
+
+    if (existingUser) {
+      return res.status(400).json({
+        message: "Email already exists"
+      });
     }
 
+    // 2️⃣ Hash the password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Generate QR code from domain (as base64)
-    const qrData = `http://${domain}/api/menu/public/${restaurant}`;
+    // 3️⃣ Generate QR code from domain
+    const qrData = `https://${domain}`;
     const qrCode = await QRCode.toDataURL(qrData);
 
-    let logo = null;
-
-    // Upload to Cloudinary if image is present
-    if (req.file) {
-      const result = await uploadToCloudinary(req.file.buffer);
-      logo = {
-        url: result.secure_url,
-        public_id: result.public_id,
-      };
-    }
-
+    // 4️⃣ Create new user
     const user = await User.create({
       name,
       email,
       password: hashedPassword,
       domain,
-      restaurant,
-      logo,
-      qrCode,
+      restaurantName,
+      qrCode
     });
 
+    // 5️⃣ Generate JWT token
     const token = generateToken(user._id);
 
+    // 6️⃣ Return response
     res.status(201).json({
       _id: user._id,
       name: user.name,
       email: user.email,
       domain: user.domain,
-      restaurant: user.restaurant,
-      logo: user.logo,
-      qrCode: user.qrCode, // base64 image string
-      token,
+      restaurantName: user.restaurantName,
+      qrCode: user.qrCode,
+      token
     });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error("User registration error:", err);
+    res.status(500).json({ message: "Server error", error: err.message });
   }
 };
 
@@ -71,14 +66,11 @@ exports.loginUser = async (req, res) => {
 
     const token = generateToken(user._id);
 
-    res.json({
+    res.status(200).json({
+      message: `${user.name} login sucessfully`,
       _id: user._id,
       name: user.name,
       email: user.email,
-      domain: user.domain,         
-      restaurant: user.restaurant,  
-      logo: user.logo,              
-      qrCode: user.qrCode,
       token,
     });
   } catch (err) {
@@ -86,7 +78,4 @@ exports.loginUser = async (req, res) => {
   }
 };
 
-exports.getProfile = async (req, res) => {
-  res.json(req.user);
-};
 

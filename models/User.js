@@ -6,11 +6,12 @@ const userSchema = new mongoose.Schema(
     name: { type: String, required: true },
     email: { type: String, required: true, unique: true },
     password: { type: String, required: true },
-    domain: { type: String, required: true }, // add domain
-    restaurant: { type: String, required: true, unique: true },
-    logo: {
-      url: { type: String, required: true },
-      public_id: { type: String, required: true },
+    domain: { type: String, required: true, unique: true }, // add domain
+    restaurantName: { type: String, required: true, unique: true },
+    restaurantId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Restaurant",
+      default: null
     },
     qrCode: { type: String }, // base64 QR code for the domain
   },
