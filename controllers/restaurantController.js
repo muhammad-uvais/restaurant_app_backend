@@ -6,7 +6,7 @@ const { uploadToCloudinary, deleteFromCloudinary } = require("../utils/cloudinar
 // ========================
 exports.getRestaurantDetails = async (req, res) => {
   try {
-    const host = req.tenantHost; // from middleware
+    const host = req.frontendHost; // from middleware
 
     // Lookup restaurant by domain
     const restaurant = await Restaurant.findOne({ domain: host, deleted: false }).lean();
