@@ -2,12 +2,13 @@
 const express = require("express");
 const router = express.Router();
 const orderController = require("../controllers/orderController");
-// const { authenticate } = require("../middleware/authMiddleware")
+const { authenticate } = require("../middleware/authMiddleware")
+const getTenant = require("../middleware/tenantMiddleware")
 
 // Create order
-router.post("/:restaurant", orderController.createOrder);
+router.post("/", getTenant, orderController.createOrder);
 // Get order
-router.get("/", orderController.getAllOrders);
+router.get("/", authenticate, orderController.getAllOrders);
 // Update order
 router.put("/:orderId", orderController.updateOrder);
 // Cancel order

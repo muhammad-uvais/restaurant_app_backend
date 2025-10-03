@@ -7,6 +7,5 @@ const upload = require("../middleware/multer")
 
 router.post("/register", upload.single("file"), registerUser);
 router.post("/login", loginUser);
-router.get("/profile", getProfile);
 
 module.exports = router;
