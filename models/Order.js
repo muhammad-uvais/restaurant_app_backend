@@ -31,6 +31,11 @@ const orderSchema = new mongoose.Schema({
     enum: ["pending", "completed", "cancelled"],
     default: "pending",
   },
+  orderType: {
+    type: String,
+    enum: ["Eat Here", "Take Away"],
+    required: true
+  },
   totalAmount: { type: Number, required: true },
   createdAt: { type: Date, default: Date.now },
 });
