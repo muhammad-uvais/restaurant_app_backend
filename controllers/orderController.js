@@ -12,7 +12,7 @@ exports.createOrder = async (req, res) => {
       return res.status(404).json({ message: "Restaurant/admin not found" });
     }
 
-    const { customerName, customerPhone, items, totalAmount, tableId } = req.body;
+    const { customerName, customerPhone, items, totalAmount, tableId, orderType } = req.body;
 
 
     const order = new Order({
@@ -21,7 +21,8 @@ exports.createOrder = async (req, res) => {
       customerPhone,
       items,
       totalAmount,
-      tableId
+      tableId,
+      orderType
     });
 
     await order.save();
