@@ -1,9 +1,9 @@
 const Restaurant = require("../models/Restaurant");
 const { uploadToCloudinary, deleteFromCloudinary } = require("../utils/cloudinary")
 
-// ========================
+
 // Get restaurant details (Client, via tenant middleware)
-// ========================
+
 exports.getRestaurantDetails = async (req, res) => {
   try {
     const host = req.frontendHost; // from middleware
@@ -25,9 +25,9 @@ exports.getRestaurantDetails = async (req, res) => {
 };
 
 
-// ========================
+
 // Get restaurant details (Admin, JWT protected)
-// ========================
+
 exports.getAdminRestaurantDetails = async (req, res) => {
     try {
         const user = req.user; // JWT middleware sets req.user
@@ -47,9 +47,9 @@ exports.getAdminRestaurantDetails = async (req, res) => {
 };
 
 
-// ========================
+
 // Add restaurant details (Admin, JWT protected)
-// ========================
+
 exports.addRestaurantDetails = async (req, res) => {
     try {
         // 1️⃣ Get logged-in user from JWT
@@ -108,9 +108,9 @@ exports.addRestaurantDetails = async (req, res) => {
 };
 
 
-// ========================
+
 // Update restaurant details (Admin, JWT protected)
-// ========================
+
 exports.updateRestaurantDetails = async (req, res) => {
     try {
         const user = req.user; // logged-in user from JWT
@@ -147,9 +147,9 @@ exports.updateRestaurantDetails = async (req, res) => {
 };
 
 
-// ========================
+
 // Delete restaurant (Admin, JWT protected)
-// ========================
+
 exports.deleteRestaurant = async (req, res) => {
     try {
         const user = req.user;

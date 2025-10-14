@@ -6,18 +6,14 @@ const { authenticate } = require("../middleware/authMiddleware")
 const upload = require("../middleware/multer")
 
 
-// ============================
-// Client Routes (public, tenant-based)
-// ============================
 
+// Client Routes (public, tenant-based)
 // Get restaurant details for client (tenant middleware)
 router.get("/public", getTenant, restaurantController.getRestaurantDetails);
 
 
-// ============================
-// Admin Routes (JWT protected)
-// ============================
 
+// Admin Routes (JWT protected)
 // Get logged-in admin's restaurant details
 router.get("/admin", authenticate, restaurantController.getAdminRestaurantDetails);
 // Create/Add restaurant details

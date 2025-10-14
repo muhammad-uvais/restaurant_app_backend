@@ -3,31 +3,8 @@ const MenuItem = require("../models/MenuItem");
 const User = require("../models/User")
 const { uploadToCloudinary, deleteFromCloudinary } = require("../utils/cloudinary")
 
-// client side get menu items
-exports.getMenuByDomain = async (req, res) => {
-  const { restaurant } = req.params;
 
-  try {
-    // 1. Find the restaurant/admin (user) using the domain
-    const user = await User.findOne({ restaurant }).lean();
-    if (!user) {
-      return res.status(404).json({ message: "Restaurant not found." });
-    }
-
-    // 2. Find all menu items created by that user
-    const menuItems = await MenuItem.find({ user: user._id }).lean();
-
-    // 3. Return both restaurant details and menu items
-    res.status(200).json({
-      restaurant: user,   // restaurant details
-      menu: menuItems     // menu items
-    });
-
-  } catch (err) {
-    res.status(500).json({ message: "Server error", error: err.message });
-  }
-};
-
+// Get Menu details (Client, via tenant middleware)
 exports.getMenuByTenant = async (req, res) => {
   try {
     const { tenantAdminId, tenantRestaurantName } = req;
@@ -50,7 +27,8 @@ exports.getMenuByTenant = async (req, res) => {
 
 
 
-// admin side get menu items
+
+// Get Menu details (Admin, JWT protected)
 exports.getMenuItems = async (req, res) => {
   try {
     const user = req.user;
@@ -60,12 +38,12 @@ exports.getMenuItems = async (req, res) => {
       message: `Menu Items fetched successfully`,
       menu: menuItems,
     });
-  } catch (error) {
-    res.status(500).json({ error: "Server error" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 };
 
-// admin
+// Add Menu details (Admin, JWT protected)
 exports.addMenuItem = async (req, res) => {
   try {
     const { name, description, price, type, category, available } = req.body;
@@ -104,39 +82,58 @@ exports.addMenuItem = async (req, res) => {
 };
 
 
-// admin
+// Update Menu details (Admin, JWT protected)
 exports.updateMenuItem = async (req, res) => {
   const { id } = req.params;
 
   try {
+    // Fetch the existing menu item
     const item = await MenuItem.findById(id);
-    if (!item) return res.status(404).json({ error: 'Menu item not found.' });
-
-    const updateData = { ...req.body, modifiedAt: new Date() };
-
-    if (req.file) {
-      // Delete old image if present
-      if (item.image?.public_id) await deleteFromCloudinary(item.image.public_id).catch(console.warn);
-
-      // Upload new image
-      const result = await uploadToCloudinary(req.file.buffer);
-      updateData.image = { url: result.secure_url, public_id: result.public_id };
+    if (!item) {
+      return res.status(404).json({ error: 'Menu item not found.' });
     }
 
+    // Prepare the update data
+    const updateData = { ...(req.body || {}), modifiedAt: new Date() };
+
+    if (req.file) {
+      // Delete old image if it exists
+      if (item.image?.public_id) {
+        await deleteFromCloudinary(item.image.public_id).catch(console.warn);
+      }
+
+      // Optional: logging for debugging
+      console.log('Headers:', req.headers['content-type']);
+      console.log('req.body keys:', Object.keys(req.body || {}));
+      console.log('req.file:', req.file);
+
+      // Upload the new image
+      const result = await uploadToCloudinary(req.file.buffer);
+      updateData.image = {
+        url: result.secure_url,
+        public_id: result.public_id
+      };
+    }
+
+    // Update the menu item in the database
     const updatedItem = await MenuItem.findByIdAndUpdate(id, updateData, { new: true });
+
     return res.status(200).json({ message: 'Menu item updated.', item: updatedItem });
 
   } catch (err) {
-    console.error('Update error:', err.message);
-    return res.status(500).json({ error: 'Internal server error.' });
+    console.error('Update error:', err);
+    return res.status(500).json({ error: err.message });
   }
 };
 
 
-// admin
+
+// Delete (Soft) Menu details (Admin, JWT protected)
 exports.deleteMenuItem = async (req, res) => {
+  const { id } = req.params
+
   try {
-    const item = await MenuItem.findById(req.params.id);
+    const item = await MenuItem.findById(id);
 
     if (!item) {
       return res.status(404).json({ message: "Menu item not found" });
@@ -149,7 +146,7 @@ exports.deleteMenuItem = async (req, res) => {
     res.status(200).json({ message: "Menu item soft deleted successfully" });
   } catch (err) {
     console.error("Delete error:", err);
-    res.status(500).json({ error: "Server error" });
+    res.status(500).json({ error: err.message });
   }
 };
 

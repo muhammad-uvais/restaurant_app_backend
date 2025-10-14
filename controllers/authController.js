@@ -3,12 +3,12 @@ const bcrypt = require("bcryptjs");
 const generateToken = require("../utils/generateToken");
 const QRCode = require("qrcode");
 
-// US
+// Super Admin 
 exports.registerUser = async (req, res) => {
   try {
     const { name, email, password, domain, restaurantName } = req.body;
 
-    // 1️⃣ Check if email or restaurantName already exists
+    //  Check if email already exists
     const existingUser = await User.findOne({ email });
 
     if (existingUser) {
@@ -17,14 +17,14 @@ exports.registerUser = async (req, res) => {
       });
     }
 
-    // 2️⃣ Hash the password
+    // Hash the password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // 3️⃣ Generate QR code from domain
+    //  Generate QR code from domain
     const qrData = `https://${domain}`;
     const qrCode = await QRCode.toDataURL(qrData);
 
-    // 4️⃣ Create new user
+    //  Create new user
     const user = await User.create({
       name,
       email,
@@ -34,10 +34,10 @@ exports.registerUser = async (req, res) => {
       qrCode
     });
 
-    // 5️⃣ Generate JWT token
+    //  Generate JWT token
     const token = generateToken(user._id);
 
-    // 6️⃣ Return response
+    //  Return response
     res.status(201).json({
       _id: user._id,
       name: user.name,
@@ -54,7 +54,7 @@ exports.registerUser = async (req, res) => {
 };
 
 
-// Restaurant Owner
+// Admin
 exports.loginUser = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -71,6 +71,8 @@ exports.loginUser = async (req, res) => {
       _id: user._id,
       name: user.name,
       email: user.email,
+      qrCode: user.qrCode,
+      restaurantName: user.restaurantName,
       token,
     });
   } catch (err) {
