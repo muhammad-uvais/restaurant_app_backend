@@ -20,7 +20,6 @@
     "mongodb": "6.18",
     "mongoose": "^8.17.1",
     "multer": "^2.0.2",
-    "node-cache": "^5.1.2",
     "qrcode": "^1.5.4",
     "streamifier": "^0.1.1"
   },
