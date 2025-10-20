@@ -1,4 +1,5 @@
 const User = require("../models/User");
+const Restaurant = require("../models/Restaurant")
 const bcrypt = require("bcryptjs");
 const generateToken = require("../utils/generateToken");
 const QRCode = require("qrcode");
@@ -8,44 +9,65 @@ exports.registerUser = async (req, res) => {
   try {
     const { name, email, password, domain, restaurantName } = req.body;
 
-    //  Check if email already exists
-    const existingUser = await User.findOne({ email });
-
-    if (existingUser) {
+    //  Validate required fields
+    if (!name || !email || !password || !restaurantName || !domain) {
       return res.status(400).json({
-        message: "Email already exists"
+        message: "Name, email, password, domain, and restaurantName are required.",
       });
     }
 
-    // Hash the password
+    //  Check if email already exists
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ message: "Email already exists" });
+    }
+
+    //  Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
     //  Generate QR code from domain
-    const qrData = `https://${domain}`;
-    const qrCode = await QRCode.toDataURL(qrData);
+    const qrCode = await QRCode.toDataURL(`https://${domain}`);
 
-    //  Create new user
+    //  Create user
     const user = await User.create({
       name,
       email,
       password: hashedPassword,
       domain,
       restaurantName,
-      qrCode
     });
+
+    //  Create restaurant immediately
+    const restaurant = await Restaurant.create({
+      user: user._id,
+      name: user.name,
+      restaurantName: user.restaurantName,
+      qrCode,
+      domain,
+    });
+
+    //  Link restaurantId in user
+    user.restaurantId = restaurant._id;
+    await user.save();
 
     //  Generate JWT token
     const token = generateToken(user._id);
 
     //  Return response
     res.status(201).json({
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      domain: user.domain,
-      restaurantName: user.restaurantName,
-      qrCode: user.qrCode,
-      token
+      message: "User registered successfully with restaurant",
+      user: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        domain: user.domain,
+      },
+      restaurant: {
+        _id: restaurant._id,
+        restaurantName: restaurant.restaurantName,
+        qrCode: restaurant.qrCode,
+      },
+      token,
     });
   } catch (err) {
     console.error("User registration error:", err);

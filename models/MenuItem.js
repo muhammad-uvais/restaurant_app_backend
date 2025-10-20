@@ -18,11 +18,11 @@ const menuItemSchema = new mongoose.Schema(
     category: String,
     available: {
       type: Boolean,
-      default: true // menu item is available by default
+      default: true 
     },
     user: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "User", // reference to the User model (admin/restaurant owner)
+      ref: "User",
       required: false
     },
     deleted: { type: Boolean, default: false }, 

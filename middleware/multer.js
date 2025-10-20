@@ -2,7 +2,7 @@ const multer = require('multer');
 const path = require('path');
 
 // Define storage settings for storing files in memory
-const storage = multer.memoryStorage(); // No need to store files locally
+const storage = multer.memoryStorage();
 
 // Define file filter to accept only certain types of files
 const fileFilter = (req, file, cb) => {
@@ -19,12 +19,12 @@ const fileFilter = (req, file, cb) => {
 
 // Set the upload limits (optional)
 const limits = {
-  fileSize: 300 * 1024, // Limit file size to 100 KB
+  fileSize: 300 * 1024, // Limit file size to 300 KB
 };
 
 // Create the Multer instance
 const upload = multer({
-  storage: storage,      // Using memoryStorage to keep files in memory
+  storage: storage, 
   fileFilter: fileFilter,
   limits: limits,
 });

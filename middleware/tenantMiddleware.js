@@ -32,12 +32,6 @@ module.exports = async function getTenant(req, res, next) {
     req.tenantRestaurantName = user.restaurantName;
     req.frontendHost = frontendHost;
 
-    console.log("Tenant resolved:", {
-      frontendHost,
-      userId: user._id,
-      restaurant: user.restaurantName,
-    });
-
     next();
   } catch (error) {
     console.error("Tenant middleware error:", error);
