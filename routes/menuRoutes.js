@@ -11,7 +11,6 @@ router.get("/", authenticate, menuController.getMenuItems);
 router.post("/", authenticate, upload.single('file'), menuController.addMenuItem);
 router.put("/:id", upload.single('file'), menuController.updateMenuItem);
 router.delete("/:id", menuController.deleteMenuItem);
-router.patch("/:id/toggle", menuController.toggleAvailability);
 
 
 module.exports = router;

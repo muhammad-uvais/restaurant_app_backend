@@ -5,25 +5,26 @@ const { uploadToCloudinary, deleteFromCloudinary } = require("../utils/cloudinar
 // Get restaurant details (Client, via tenant middleware)
 
 exports.getRestaurantDetails = async (req, res) => {
-  try {
-    const host = req.frontendHost; // from middleware
+    try {
+        const host = req.frontendHost; // from middleware
 
-    // Lookup restaurant by domain
-    const restaurant = await Restaurant.findOne({ domain: host, deleted: false }).lean();
+        // Lookup restaurant by domain
+        const restaurant = await Restaurant.findOne({ domain: host, deleted: false }).select(
+            "-qrCode -__v -createdAt -updatedAt")
+            .lean();
 
-    if (!restaurant) {
-      return res.status(404).json({ message: "Restaurant not found" });
+        if (!restaurant) {
+            return res.status(404).json({ message: "Restaurant not found" });
+        }
+
+        res.status(200).json({
+            restaurant,
+        });
+    } catch (err) {
+        console.error("Get restaurant details error:", err);
+        res.status(500).json({ message: "Server error", error: err.message });
     }
-
-    res.status(200).json({
-      restaurant,
-    });
-  } catch (err) {
-    console.error("Get restaurant details error:", err);
-    res.status(500).json({ message: "Server error", error: err.message });
-  }
 };
-
 
 
 // Get restaurant details (Admin, JWT protected)
@@ -47,66 +48,70 @@ exports.getAdminRestaurantDetails = async (req, res) => {
 };
 
 
-
 // Add restaurant details (Admin, JWT protected)
 
-exports.addRestaurantDetails = async (req, res) => {
-    try {
-        // 1️⃣ Get logged-in user from JWT
-        const user = req.user; // req.user is populated by your JWT auth middleware
+// exports.addRestaurantDetails = async (req, res) => {
+//     try {
+//         // Get logged-in user from JWT
+//         const user = req.user;
+//         if (!user) {
+//             return res.status(401).json({ message: "Unauthorized" });
+//         }
 
-        if (!user) {
-            return res.status(401).json({ message: "Unauthorized" });
-        }
+//         // Check if restaurant already exists for this user
+//         const existingRestaurant = await Restaurant.findOne({ user: user._id, deleted: false });
+//         if (existingRestaurant) {
+//             return res.status(400).json({
+//                 message: "Restaurant already exists. Please update the existing restaurant instead.",
+//             });
+//         }
 
-        const existingRestaurant = await Restaurant.findOne({ user: user._id, deleted: false });
-        if (existingRestaurant) {
-            return res.status(400).json({
-                message: "Restaurant already exists. Please update the existing restaurant instead.",
-            });
-        }
+//         // Destructure request body with default values
+//         const { address, categories, tableNumbers, phoneNumber, gstRate, gstEnabled } = req.body;
 
-        const { categories, tableNumbers, phoneNumber } = req.body;
-        let logo = null;
+//         // Handle logo upload if file is provided
+//         let logo = null;
+//         if (req.file) {
+//             const result = await uploadToCloudinary(req.file.buffer);
+//             logo = {
+//                 url: result.secure_url,
+//                 public_id: result.public_id,
+//             };
+//         }
 
-        // Upload to Cloudinary if image is present
-        if (req.file) {
-            const result = await uploadToCloudinary(req.file.buffer);
-            logo = {
-                url: result.secure_url,
-                public_id: result.public_id,
-            };
-        }
+//         // Create new restaurant
+//         const restaurant = new Restaurant({
+//             user: user._id,
+//             name: user.name,
+//             domain: user.domain,
+//             qrCode: user.qrCode,
+//             restaurantName: user.restaurantName,
+//             address,
+//             logo,
+//             categories,
+//             tableNumbers,
+//             phoneNumber,
+//             gstRate,
+//             gstEnabled,
+//         });
+//         await restaurant.save();
 
-        // 4️⃣ Create new restaurant using info from User + request body
-        const restaurant = new Restaurant({
-            user: user._id,
-            name: user.name,   // from User model
-            restaurantName: user.restaurantName,   // from User model
-            domain: user.domain,     // from User model
-            qrCode: user.qrCode,
-            logo,
-            categories: categories || [],
-            tableNumbers: tableNumbers || [],
-            phoneNumber: phoneNumber || "",
-        });
+//         // store restaurantId in User for easy population later
+//         user.restaurantId = restaurant._id;
+//         await user.save();
 
-        await restaurant.save();
-
-        // Optional: store restaurantId in User for easy populate later
-        user.restaurantId = restaurant._id;
-        await user.save();
-
-        res.status(201).json({
-            message: "Restaurant details added successfully",
-            restaurant,
-        });
-    } catch (err) {
-        console.error("Add restaurant error:", err);
-        res.status(500).json({ message: "Server error", error: err.message });
-    }
-};
-
+//         return res.status(201).json({
+//             message: "Restaurant details added successfully",
+//             restaurant,
+//         });
+//     } catch (err) {
+//         console.error("Add restaurant error:", err);
+//         return res.status(500).json({
+//             message: "Server error",
+//             error: err.message,
+//         });
+//     }
+// };
 
 
 // Update restaurant details (Admin, JWT protected)
@@ -147,7 +152,6 @@ exports.updateRestaurantDetails = async (req, res) => {
 };
 
 
-
 // Delete restaurant (Admin, JWT protected)
 
 exports.deleteRestaurant = async (req, res) => {
@@ -165,6 +169,48 @@ exports.deleteRestaurant = async (req, res) => {
         res.status(200).json({ message: "Restaurant soft-deleted successfully" });
     } catch (err) {
         console.error("Soft delete restaurant error:", err);
+        res.status(500).json({ message: "Server error", error: err.message });
+    }
+};
+
+
+// Update GST Setting (Admin, JWT protected)
+
+exports.updateGstSettings = async (req, res) => {
+    try {
+        const { gstEnabled, gstRate } = req.body || {};
+
+        if (gstEnabled === undefined && gstRate === undefined) {
+            return res.status(400).json({ message: "No GST settings provided" });
+        }
+
+        const userId = req.user._id;
+        const restaurant = await Restaurant.findOne({ user: userId, deleted: false });
+        if (!restaurant) return res.status(404).json({ message: "Restaurant not found" });
+
+        // Update gstEnabled if provided
+        if (gstEnabled !== undefined) {
+            restaurant.gstEnabled = gstEnabled === true || gstEnabled === "true";
+        }
+
+        // Update gstRate only if provided
+        if (gstRate !== undefined) {
+            const rate = Number(gstRate);
+            if (isNaN(rate) || rate < 0 || rate > 100) {
+                return res.status(400).json({ message: "Invalid GST rate. Must be 0-100." });
+            }
+            restaurant.gstRate = rate;
+        }
+
+        await restaurant.save();
+
+        res.status(200).json({
+            message: "GST settings updated successfully",
+            gstEnabled: restaurant.gstEnabled,
+            gstRate: restaurant.gstRate,
+        });
+    } catch (err) {
+        console.error("Error updating GST settings:", err);
         res.status(500).json({ message: "Server error", error: err.message });
     }
 };

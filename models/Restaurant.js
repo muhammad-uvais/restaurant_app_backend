@@ -11,12 +11,17 @@ const restaurantSchema = new mongoose.Schema(
         restaurantName: {
             type: String,
         },
+        address: {
+            type: String,
+        },
         domain: { type: String },
         logo: {
             url: { type: String },
             public_id: { type: String },
         },
         qrCode: { type: String },
+        gstRate: { type: Number, default: 0 },
+        gstEnabled: { type: Boolean, default: false },
         categories: [String],
         tableNumbers: { type: Number },
         phoneNumber: { type: Number },

@@ -6,14 +6,14 @@ const userSchema = new mongoose.Schema(
     name: { type: String, required: true },
     email: { type: String, required: true, unique: true },
     password: { type: String, required: true },
-    domain: { type: String, required: true, unique: true }, // add domain
-    restaurantName: { type: String, required: true, unique: true },
+    domain: { type: String, required: true, unique: true },
+    restaurantName: { type: String, required: true},
     restaurantId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Restaurant",
       default: null
     },
-    qrCode: { type: String }, // base64 QR code for the domain
+    qrCode: { type: String },
   },
   { timestamps: true }
 );

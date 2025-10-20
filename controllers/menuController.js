@@ -1,6 +1,5 @@
 // controllers/menuController.js
-const MenuItem = require("../models/MenuItem");
-const User = require("../models/User")
+const MenuItem = require("../models/MenuItem")
 const { uploadToCloudinary, deleteFromCloudinary } = require("../utils/cloudinary")
 
 
@@ -16,7 +15,7 @@ exports.getMenuByTenant = async (req, res) => {
     const menuItems = await MenuItem.find({ user: tenantAdminId, deleted: false });
 
     res.status(200).json({
-      message: `Menu Items from restaurant: ${tenantRestaurantName}`, // 👈 print restaurant name
+      message: `Menu Items from restaurant: ${tenantRestaurantName}`,
       menu: menuItems,
     });
   } catch (err) {
@@ -24,9 +23,6 @@ exports.getMenuByTenant = async (req, res) => {
     res.status(500).json({ message: "Server error", error: err.message });
   }
 };
-
-
-
 
 // Get Menu details (Admin, JWT protected)
 exports.getMenuItems = async (req, res) => {
@@ -81,7 +77,6 @@ exports.addMenuItem = async (req, res) => {
   }
 };
 
-
 // Update Menu details (Admin, JWT protected)
 exports.updateMenuItem = async (req, res) => {
   const { id } = req.params;
@@ -102,11 +97,6 @@ exports.updateMenuItem = async (req, res) => {
         await deleteFromCloudinary(item.image.public_id).catch(console.warn);
       }
 
-      // Optional: logging for debugging
-      console.log('Headers:', req.headers['content-type']);
-      console.log('req.body keys:', Object.keys(req.body || {}));
-      console.log('req.file:', req.file);
-
       // Upload the new image
       const result = await uploadToCloudinary(req.file.buffer);
       updateData.image = {
@@ -125,8 +115,6 @@ exports.updateMenuItem = async (req, res) => {
     return res.status(500).json({ error: err.message });
   }
 };
-
-
 
 // Delete (Soft) Menu details (Admin, JWT protected)
 exports.deleteMenuItem = async (req, res) => {
@@ -150,16 +138,4 @@ exports.deleteMenuItem = async (req, res) => {
   }
 };
 
-
-// admin
-exports.toggleAvailability = async (req, res) => {
-  try {
-    const item = await MenuItem.findById(req.params.id);
-    item.available = !item.available;
-    await item.save();
-    res.status(200).json(item);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-};
 

@@ -17,10 +17,12 @@ router.get("/public", getTenant, restaurantController.getRestaurantDetails);
 // Get logged-in admin's restaurant details
 router.get("/admin", authenticate, restaurantController.getAdminRestaurantDetails);
 // Create/Add restaurant details
-router.post("/details", authenticate, upload.single("file"), restaurantController.addRestaurantDetails);
+// router.post("/details", authenticate, upload.single("file"), restaurantController.addRestaurantDetails);
 // Update restaurant details
 router.put("/", authenticate, upload.single("file"), restaurantController.updateRestaurantDetails);
 // Delete restaurant (soft delete)
 router.delete("/", authenticate, restaurantController.deleteRestaurant)
+// Update GST settings
+router.patch("/gst", authenticate, restaurantController.updateGstSettings)
 
 module.exports = router;
