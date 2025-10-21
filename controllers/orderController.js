@@ -53,6 +53,7 @@ exports.createOrder = async (req, res) => {
       totalAmount,
       tableId,
       orderType,
+      address,
     });
 
     await order.save();
