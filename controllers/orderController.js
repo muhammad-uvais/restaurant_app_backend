@@ -11,7 +11,7 @@ exports.createOrder = async (req, res) => {
       return res.status(404).json({ message: "Restaurant/admin not found" });
     }
 
-    const { customerName, customerPhone, items, tableId, orderType } = req.body;
+    const { customerName, customerPhone, items, tableId, orderType, address } = req.body;
 
     if (!items || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ message: "Order must contain at least one item." });
