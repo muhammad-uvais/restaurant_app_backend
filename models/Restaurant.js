@@ -20,6 +20,7 @@ const restaurantSchema = new mongoose.Schema(
             public_id: { type: String },
         },
         qrCode: { type: String },
+        gstNumber: { type: String },
         gstRate: { type: Number, default: 0 },
         gstEnabled: { type: Boolean, default: false },
         categories: [String],
