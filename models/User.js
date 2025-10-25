@@ -6,14 +6,21 @@ const userSchema = new mongoose.Schema(
     name: { type: String, required: true },
     email: { type: String, required: true, unique: true },
     password: { type: String, required: true },
-    domain: { type: String, required: true, unique: true },
-    restaurantName: { type: String, required: true},
+    domain: { type: String, required: false, unique: false },
+    restaurantName: { type: String, required: false },
+    role: {
+      type: String,
+      enum: ["user", "admin", "superadmin", "staff"],
+      default: "user",
+      required: true
+    },
     restaurantId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Restaurant",
-      default: null
+      default: undefined
     },
     qrCode: { type: String },
+    createdBy: {type: mongoose.Schema.Types.ObjectId, default: null}
   },
   { timestamps: true }
 );
