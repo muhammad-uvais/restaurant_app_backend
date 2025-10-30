@@ -4,7 +4,17 @@ const mongoose = require("mongoose");
 const menuItemSchema = new mongoose.Schema(
   {
     name: { type: String, required: true },
-    price: { type: Number, required: true },
+    pricingType: {
+      type: String,
+      enum: ["single", "variant"],
+      required: true,
+    },
+    price: { type: Number, default: null },
+    variantRates: {
+      quarter: { type: Number, default: null },
+      half: { type: Number, default: null },
+      full: { type: Number, default: null },
+    },
     description: String,
     image: {
       url: { type: String },
@@ -18,14 +28,14 @@ const menuItemSchema = new mongoose.Schema(
     category: String,
     available: {
       type: Boolean,
-      default: true 
+      default: true
     },
     user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: false
     },
-    deleted: { type: Boolean, default: false }, 
+    deleted: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

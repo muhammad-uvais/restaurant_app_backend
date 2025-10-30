@@ -8,7 +8,7 @@ const getTenant = require("../middleware/tenantMiddleware")
 
 router.get("/public", getTenant, menuController.getMenuByTenant)
 router.get("/", authenticate, menuController.getMenuItems);
-router.post("/", authenticate, upload.single('file'), menuController.addMenuItem);
+router.post("/", authenticate, upload.single('file'), menuController.addMenuItems);
 router.put("/:id", upload.single('file'), menuController.updateMenuItem);
 router.delete("/:id", menuController.deleteMenuItem);
 

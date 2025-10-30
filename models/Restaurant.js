@@ -20,6 +20,11 @@ const restaurantSchema = new mongoose.Schema(
             public_id: { type: String },
         },
         qrCode: { type: String },
+        orderModes: {
+            eathere: { type: Boolean, default: true },
+            takeaway: { type: Boolean, default: true },
+            delivery: { type: Boolean, default: true },
+        },
         gstNumber: { type: String },
         gstRate: { type: Number, default: 0 },
         gstEnabled: { type: Boolean, default: false },
