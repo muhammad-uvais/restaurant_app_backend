@@ -10,11 +10,7 @@ const orderSchema = new mongoose.Schema({
   customerName: { type: String, required: true },
   customerPhone: { type: String, required: true },
   address: { type: String },
-  tableId: {
-    type: String,
-    // required: true,
-  },
-
+  tableId: { type: String },
   items: [
     {
       menuItemId: {
@@ -22,9 +18,10 @@ const orderSchema = new mongoose.Schema({
         ref: "MenuItem",
         required: true,
       },
+      name: { type: String, required: true },
+      variant: { type: String, required: false }, // optional for single-price items
       quantity: { type: Number, required: true },
-      price: { type: Number, required: true },
-      name: { type: String, required: true }
+      price: { type: Number, required: true }, // price per unit or per variant
     },
   ],
   status: {
