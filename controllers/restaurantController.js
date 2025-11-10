@@ -149,4 +149,42 @@ exports.updateGstSettings = async (req, res) => {
     }
 };
 
+// Update isOpen Setting (Admin, JWT protected)
+
+exports.updateRestaurantStatus = async (req, res) => {
+  try {
+    const user = req.user; // Logged-in user (from JWT middleware)
+    if (!user) return res.status(401).json({ message: "Unauthorized" });
+
+    // Find the restaurant linked to this user
+    const restaurant = await Restaurant.findOne({ user: user._id });
+    if (!restaurant)
+      return res.status(404).json({ message: "Restaurant not found." });
+
+    const { isOpen } = req.body;
+
+    // Validate input
+    if (typeof isOpen !== "boolean") {
+      return res.status(400).json({ message: "Invalid value for isOpen. It must be true or false." });
+    }
+
+    // Update only the isOpen field (partial update)
+    restaurant.isOpen = isOpen;
+    restaurant.updatedAt = new Date();
+    await restaurant.save();
+
+    res.status(200).json({
+      message: `Restaurant is now ${isOpen ? "open" : "closed"}.`,
+      restaurant,
+    });
+
+  } catch (err) {
+    console.error("Update restaurant status error:", err);
+    res.status(500).json({ message: "Internal server error.", error: err.message });
+  }
+};
+
+
+
+
 

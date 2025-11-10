@@ -24,5 +24,7 @@ router.put("/", authenticate, upload.single("file"), restaurantController.update
 router.delete("/", authenticate, restaurantController.deleteRestaurant)
 // Update GST settings
 router.patch("/gst", authenticate, restaurantController.updateGstSettings)
+// Update restaurant open status
+router.patch("/status", authenticate, restaurantController.updateRestaurantStatus)
 
 module.exports = router;

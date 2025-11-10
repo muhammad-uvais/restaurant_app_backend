@@ -31,6 +31,7 @@ const restaurantSchema = new mongoose.Schema(
         categories: [String],
         tableNumbers: { type: Number },
         phoneNumber: { type: Number },
+        isOpen: { type: Boolean, default: true },
         deleted: { type: Boolean, default: false },
     },
     { timestamps: true }
