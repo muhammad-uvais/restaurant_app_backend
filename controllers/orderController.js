@@ -238,7 +238,6 @@ exports.updateOrder = async (req, res) => {
     const allowedSimpleFields = [
       "status",
       "tableId",
-      "fingerPrint",
       "address",
       "orderType"
     ];
