@@ -1,7 +1,9 @@
 // controllers/menuController.js
-const MenuItem = require("../models/MenuItem")
-const { uploadToCloudinary, deleteFromCloudinary } = require("../utils/cloudinary")
-
+const MenuItem = require("../models/MenuItem");
+const {
+  uploadToCloudinary,
+  deleteFromCloudinary,
+} = require("../utils/cloudinary");
 
 // Get Menu details (Client, via tenant middleware)
 exports.getMenuByTenant = async (req, res) => {
@@ -12,7 +14,10 @@ exports.getMenuByTenant = async (req, res) => {
       return res.status(404).json({ message: "Tenant not found" });
     }
 
-    const menuItems = await MenuItem.find({ user: tenantAdminId, deleted: false });
+    const menuItems = await MenuItem.find({
+      user: tenantAdminId,
+      deleted: false,
+    });
 
     res.status(200).json({
       message: `Menu Items from restaurant: ${tenantRestaurantName}`,
@@ -51,11 +56,12 @@ exports.addMenuItems = async (req, res) => {
       type,
       category,
       available,
+      discount,
     } = req.body;
 
     let image = null;
 
-    // Upload to Cloudinary if image exists
+    // --- Upload image if provided ---
     if (req.file) {
       const result = await uploadToCloudinary(req.file.buffer);
       image = {
@@ -64,7 +70,7 @@ exports.addMenuItems = async (req, res) => {
       };
     }
 
-    // Validation logic for pricing
+    // --- Pricing validation ---
     if (pricingType === "single") {
       if (!price) {
         return res.status(400).json({ error: "Single price is required" });
@@ -74,9 +80,9 @@ exports.addMenuItems = async (req, res) => {
         !variantRates ||
         (!variantRates.quarter && !variantRates.half && !variantRates.full)
       ) {
-        return res
-          .status(400)
-          .json({ error: "At least one variant rate (quarter/half/full) is required" });
+        return res.status(400).json({
+          error: "At least one variant rate (quarter/half/full) is required",
+        });
       }
     } else {
       return res
@@ -84,13 +90,45 @@ exports.addMenuItems = async (req, res) => {
         .json({ error: "Invalid pricing type. Must be 'single' or 'variant'" });
     }
 
-    // Create new item
+    // --- Discount validation ---
+    let discountData = {
+      type: null,
+      value: 0,
+      active: false,
+    };
+
+    if (discount) {
+      if (discount.active === true) {
+        if (!["percentage", "flat"].includes(discount.type)) {
+          return res.status(400).json({ error: "Invalid discount type" });
+        }
+
+        if (typeof discount.value !== "number" || discount.value <= 0) {
+          return res.status(400).json({ error: "Invalid discount value" });
+        }
+
+        if (discount.type === "percentage" && discount.value > 100) {
+          return res
+            .status(400)
+            .json({ error: "Percentage discount cannot exceed 100" });
+        }
+
+        discountData = {
+          type: discount.type,
+          value: discount.value,
+          active: true,
+        };
+      }
+    }
+
+    // --- Create new menu item ---
     const newItem = new MenuItem({
       name,
       description,
       pricingType,
       price: pricingType === "single" ? price : null,
       variantRates: pricingType === "variant" ? variantRates : null,
+      discount: discountData,
       type,
       category,
       available,
@@ -99,6 +137,7 @@ exports.addMenuItems = async (req, res) => {
     });
 
     await newItem.save();
+
     res.status(201).json({
       message: "Menu item created successfully",
       item: newItem,
@@ -108,6 +147,7 @@ exports.addMenuItems = async (req, res) => {
     res.status(400).json({ error: err.message });
   }
 };
+
 
 // Update Menu details (Admin, JWT protected)
 exports.updateMenuItem = async (req, res) => {
@@ -122,6 +162,7 @@ exports.updateMenuItem = async (req, res) => {
       type,
       category,
       available,
+      discount, // <- added discount support
     } = req.body;
 
     const existingItem = await MenuItem.findById(id);
@@ -132,11 +173,9 @@ exports.updateMenuItem = async (req, res) => {
     // --- Handle image update (optional) ---
     let image = existingItem.image;
     if (req.file) {
-      // Delete old image from Cloudinary if exists
-      if (image && image.public_id) {
+      if (image?.public_id) {
         await deleteFromCloudinary(image.public_id);
       }
-      // Upload new one
       const result = await uploadToCloudinary(req.file.buffer);
       image = {
         url: result.secure_url,
@@ -156,16 +195,46 @@ exports.updateMenuItem = async (req, res) => {
         !variantRates ||
         (!variantRates.quarter && !variantRates.half && !variantRates.full)
       ) {
-        return res
-          .status(400)
-          .json({ error: "At least one variant rate (quarter/half/full) is required" });
+        return res.status(400).json({
+          error: "At least one variant rate (quarter/half/full) is required",
+        });
       }
       existingItem.price = null;
       existingItem.variantRates = variantRates;
-    } else {
+    } else if (pricingType) {
+      // Only reject if pricingType is provided but invalid
       return res
         .status(400)
         .json({ error: "Invalid pricing type. Must be 'single' or 'variant'" });
+    }
+
+    // --- Handle discount update ---
+    if (discount) {
+      let discountData = { type: null, value: 0, active: false };
+
+      if (discount.active === true) {
+        if (!["percentage", "flat"].includes(discount.type)) {
+          return res.status(400).json({ error: "Invalid discount type" });
+        }
+
+        if (typeof discount.value !== "number" || discount.value <= 0) {
+          return res.status(400).json({ error: "Invalid discount value" });
+        }
+
+        if (discount.type === "percentage" && discount.value > 100) {
+          return res
+            .status(400)
+            .json({ error: "Percentage discount cannot exceed 100" });
+        }
+
+        discountData = {
+          type: discount.type,
+          value: discount.value,
+          active: true,
+        };
+      }
+
+      existingItem.discount = discountData;
     }
 
     // --- Update other fields ---
@@ -189,9 +258,10 @@ exports.updateMenuItem = async (req, res) => {
   }
 };
 
+
 // Delete (Soft) Menu details (Admin, JWT protected)
 exports.deleteMenuItem = async (req, res) => {
-  const { id } = req.params
+  const { id } = req.params;
 
   try {
     const item = await MenuItem.findById(id);
@@ -210,5 +280,3 @@ exports.deleteMenuItem = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
-
-

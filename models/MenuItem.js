@@ -15,6 +15,23 @@ const menuItemSchema = new mongoose.Schema(
       half: { type: Number, default: null },
       full: { type: Number, default: null },
     },
+
+    discount: {
+      type: {
+        type: String,
+        enum: ["percentage", "flat"],
+        default: null,
+      },
+      value: {
+        type: Number,
+        default: 0,
+      },
+      active: {
+        type: Boolean,
+        default: false,
+      },
+    },
+
     description: String,
     image: {
       url: { type: String },
@@ -23,17 +40,17 @@ const menuItemSchema = new mongoose.Schema(
     type: {
       type: String,
       enum: ["veg", "non-veg"],
-      required: false
+      required: false,
     },
     category: String,
     available: {
       type: Boolean,
-      default: true
+      default: true,
     },
     user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      required: false
+      required: false,
     },
     deleted: { type: Boolean, default: false },
   },

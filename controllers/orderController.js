@@ -2,6 +2,7 @@
 const Order = require("../models/Order");
 const Restaurant = require("../models/Restaurant");
 const MenuItem = require("../models/MenuItem");
+const calculateDiscountedPrice = require("../utils/calculateDiscountedPrice");
 
 // Create Order ( Client, via tenantMiddleware)
 exports.createOrder = async (req, res) => {
@@ -28,52 +29,76 @@ exports.createOrder = async (req, res) => {
         .json({ message: "Order must contain at least one item." });
     }
 
-    // Fetch all menu items (no callbacks, async/await only)
+    // 1️⃣ Fetch menu items
     const menuItems = await MenuItem.find({
       _id: { $in: items.map((i) => i.menuItemId) },
+      deleted: false,
+      available: true,
     });
 
-    // Calculate subtotal and build item list
+    if (menuItems.length === 0) {
+      return res.status(400).json({ message: "Invalid menu items" });
+    }
+
     let subtotal = 0;
     const enrichedItems = [];
 
+    // 2️⃣ Build order items
     for (const item of items) {
       const menuItem = menuItems.find(
         (m) => m._id.toString() === item.menuItemId
       );
 
-      if (!menuItem) continue;
+      if (!menuItem) {
+        return res.status(400).json({
+          message: `Menu item not found: ${item.menuItemId}`,
+        });
+      }
 
-      let itemPrice = 0;
+      let basePrice;
+      let variant = null;
 
+      // 2a️⃣ Determine base price
       if (menuItem.pricingType === "single") {
-        // flat price
-        itemPrice = menuItem.price;
-      } else if (menuItem.pricingType === "variant") {
+        basePrice = menuItem.price;
+      } else {
         const variantKey = item.variant?.toLowerCase();
 
         if (!variantKey || !menuItem.variantRates[variantKey]) {
           return res.status(400).json({
-            message: `Variant '${item.variant}' not found for ${menuItem.name}`,
+            message: `Invalid variant '${item.variant}' for ${menuItem.name}`,
           });
         }
 
-        itemPrice = menuItem.variantRates[variantKey];
+        basePrice = menuItem.variantRates[variantKey];
+        variant = item.variant;
       }
 
-      subtotal += itemPrice * item.quantity;
+      // 2b️⃣ Apply discount
+      const discountedPrice =
+        menuItem.discount?.active === true
+          ? calculateDiscountedPrice(basePrice, menuItem.discount)
+          : basePrice;
 
+      // 2c️⃣ Calculate subtotal using discounted price
+      subtotal += discountedPrice * item.quantity;
+
+      // 2d️⃣ Push snapshot into order
       enrichedItems.push({
         menuItemId: menuItem._id,
         name: menuItem.name,
-        variant: menuItem.pricingType === "variant" ? item.variant : null,
+        variant,
         quantity: item.quantity,
-        price: itemPrice,
-        customizations: item.customizations,
+
+        price: basePrice, // original price
+        discountedPrice, // final charged price
+        discountApplied: menuItem.discount || null,
+
+        customizations: item.customizations || "",
       });
     }
 
-    // Restaurant GST logic
+    // 3️⃣ GST logic
     const restaurant = await Restaurant.findOne({
       user: tenantAdminId,
       deleted: false,
@@ -87,7 +112,13 @@ exports.createOrder = async (req, res) => {
     const gstAmount = (subtotal * gstRate) / 100;
     const totalAmount = subtotal + gstAmount;
 
-    // Create order (modern async style)
+    // 4️⃣ OrderType cleanup (best practice)
+    const finalTableId =
+      orderType === "Take Away" || orderType === "Delivery" ? null : tableId;
+
+    const finalAddress = orderType === "Eat Here" ? null : address;
+
+    // 5️⃣ Create order
     const order = await Order.create({
       user: tenantAdminId,
       fingerPrint,
@@ -98,9 +129,9 @@ exports.createOrder = async (req, res) => {
       gstRate,
       gstAmount,
       totalAmount,
-      tableId,
+      tableId: finalTableId,
       orderType,
-      address,
+      address: finalAddress,
     });
 
     res.status(201).json({
@@ -109,7 +140,10 @@ exports.createOrder = async (req, res) => {
     });
   } catch (error) {
     console.error("Error creating order:", error);
-    res.status(500).json({ message: "Server error", error: error.message });
+    res.status(500).json({
+      message: "Server error",
+      error: error.message,
+    });
   }
 };
 
