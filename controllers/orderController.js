@@ -8,7 +8,6 @@ const calculateDiscountedPrice = require("../utils/calculateDiscountedPrice");
 exports.createOrder = async (req, res) => {
   try {
     const { tenantAdminId } = req;
-
     if (!tenantAdminId) {
       return res.status(404).json({ message: "Restaurant/admin not found" });
     }
@@ -23,7 +22,7 @@ exports.createOrder = async (req, res) => {
       address,
     } = req.body;
 
-    if (!items || !Array.isArray(items) || items.length === 0) {
+    if (!Array.isArray(items) || items.length === 0) {
       return res
         .status(400)
         .json({ message: "Order must contain at least one item." });
@@ -36,12 +35,8 @@ exports.createOrder = async (req, res) => {
       available: true,
     });
 
-    if (menuItems.length === 0) {
-      return res.status(400).json({ message: "Invalid menu items" });
-    }
-
     let subtotal = 0;
-    const enrichedItems = [];
+    const orderItems = [];
 
     // 2️⃣ Build order items
     for (const item of items) {
@@ -50,81 +45,96 @@ exports.createOrder = async (req, res) => {
       );
 
       if (!menuItem) {
-        return res.status(400).json({
-          message: `Menu item not found: ${item.menuItemId}`,
-        });
+        return res
+          .status(400)
+          .json({ message: "Menu item not found" });
       }
 
       let basePrice;
+      let discountedPrice;
+      let discountSnapshot = null;
       let variant = null;
 
-      // 2a️⃣ Determine base price
+       // ---- SINGLE PRICING ----
       if (menuItem.pricingType === "single") {
         basePrice = menuItem.price;
-      } else {
+
+        discountedPrice = calculateDiscountedPrice(
+          basePrice,
+          menuItem.discount
+        );
+
+        discountSnapshot = menuItem.discount;
+      }
+      // ---- VARIANT PRICING ----
+      else if (menuItem.pricingType === "variant") {
         const variantKey = item.variant?.toLowerCase();
 
         if (!variantKey || !menuItem.variantRates[variantKey]) {
           return res.status(400).json({
-            message: `Invalid variant '${item.variant}' for ${menuItem.name}`,
+            message: `Invalid variant for ${menuItem.name}`,
           });
         }
 
-        basePrice = menuItem.variantRates[variantKey];
-        variant = item.variant;
+        const variantData = menuItem.variantRates[variantKey];
+
+        basePrice = variantData.price;
+        discountedPrice = calculateDiscountedPrice(
+          basePrice,
+          variantData.discount
+        );
+
+        discountSnapshot = variantData.discount;
+        variant = variantKey;
+      }
+      // ---- COMBO PRICING ----
+      else if (menuItem.isCombo) {
+        // Combo price is fixed, no discounts
+        basePrice = menuItem.comboPrice;
+        discountedPrice = basePrice;
+        discountSnapshot = null;
       }
 
-      // 2b️⃣ Apply discount
-      const discountedPrice =
-        menuItem.discount?.active === true
-          ? calculateDiscountedPrice(basePrice, menuItem.discount)
-          : basePrice;
-
-      // 2c️⃣ Calculate subtotal using discounted price
       subtotal += discountedPrice * item.quantity;
 
-      // 2d️⃣ Push snapshot into order
-      enrichedItems.push({
+      orderItems.push({
         menuItemId: menuItem._id,
         name: menuItem.name,
         variant,
         quantity: item.quantity,
 
-        price: basePrice, // original price
-        discountedPrice, // final charged price
-        discountApplied: menuItem.discount || null,
+        price: basePrice,
+        discountedPrice,
+        discountApplied: discountSnapshot,
 
         customizations: item.customizations || "",
       });
     }
 
-    // 3️⃣ GST logic
+    // 3️⃣ GST
     const restaurant = await Restaurant.findOne({
       user: tenantAdminId,
       deleted: false,
     });
 
-    if (!restaurant) {
-      return res.status(404).json({ message: "Restaurant not found." });
-    }
-
-    const gstRate = restaurant.gstEnabled ? restaurant.gstRate : 0;
+    const gstRate = restaurant?.gstEnabled ? restaurant.gstRate : 0;
     const gstAmount = (subtotal * gstRate) / 100;
     const totalAmount = subtotal + gstAmount;
 
-    // 4️⃣ OrderType cleanup (best practice)
+    // 4️⃣ OrderType cleanup
     const finalTableId =
-      orderType === "Take Away" || orderType === "Delivery" ? null : tableId;
+      orderType === "Eat Here" ? tableId : null;
 
-    const finalAddress = orderType === "Eat Here" ? null : address;
+    const finalAddress =
+      orderType === "Delivery" ? address : null;
 
-    // 5️⃣ Create order
+    // 5️⃣ Create Order
     const order = await Order.create({
       user: tenantAdminId,
       fingerPrint,
       customerName,
       customerPhone,
-      items: enrichedItems,
+      items: orderItems,
       subtotal,
       gstRate,
       gstAmount,
@@ -139,13 +149,15 @@ exports.createOrder = async (req, res) => {
       order,
     });
   } catch (error) {
-    console.error("Error creating order:", error);
+    console.error("Create order error:", error);
     res.status(500).json({
       message: "Server error",
       error: error.message,
     });
   }
 };
+
+
 
 // Get All Orders ( Admin, JWT Protected)
 exports.getAllOrders = async (req, res) => {

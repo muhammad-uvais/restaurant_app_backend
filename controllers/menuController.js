@@ -4,6 +4,7 @@ const {
   uploadToCloudinary,
   deleteFromCloudinary,
 } = require("../utils/cloudinary");
+const normalizeDiscount = require("../utils/normalizeDiscount");
 
 // Get Menu details (Client, via tenant middleware)
 exports.getMenuByTenant = async (req, res) => {
@@ -50,92 +51,120 @@ exports.addMenuItems = async (req, res) => {
     const {
       name,
       description,
+      pricingType, // "single", "variant", "combo"
       price,
-      pricingType, // "single" or "variant"
       variantRates,
       type,
       category,
       available,
-      discount,
+      discount, // for single items
+      comboPrice, // for combo items
+      comboItems, // array of items in combo [{menuItemId, variant?, quantity}]
     } = req.body;
 
     let image = null;
-
-    // --- Upload image if provided ---
     if (req.file) {
       const result = await uploadToCloudinary(req.file.buffer);
-      image = {
-        url: result.secure_url,
-        public_id: result.public_id,
-      };
+      image = { url: result.secure_url, public_id: result.public_id };
     }
 
-    // --- Pricing validation ---
-    if (pricingType === "single") {
-      if (!price) {
-        return res.status(400).json({ error: "Single price is required" });
-      }
-    } else if (pricingType === "variant") {
-      if (
-        !variantRates ||
-        (!variantRates.quarter && !variantRates.half && !variantRates.full)
-      ) {
-        return res.status(400).json({
-          error: "At least one variant rate (quarter/half/full) is required",
-        });
-      }
-    } else {
-      return res
-        .status(400)
-        .json({ error: "Invalid pricing type. Must be 'single' or 'variant'" });
+    if (!["single", "variant", "combo"].includes(pricingType)) {
+      return res.status(400).json({ error: "Invalid pricing type" });
     }
 
-    // --- Discount validation ---
-    let discountData = {
-      type: null,
-      value: 0,
-      active: false,
-    };
-
-    if (discount) {
-      if (discount.active === true) {
-        if (!["percentage", "flat"].includes(discount.type)) {
-          return res.status(400).json({ error: "Invalid discount type" });
-        }
-
-        if (typeof discount.value !== "number" || discount.value <= 0) {
-          return res.status(400).json({ error: "Invalid discount value" });
-        }
-
-        if (discount.type === "percentage" && discount.value > 100) {
-          return res
-            .status(400)
-            .json({ error: "Percentage discount cannot exceed 100" });
-        }
-
-        discountData = {
-          type: discount.type,
-          value: discount.value,
-          active: true,
-        };
-      }
-    }
-
-    // --- Create new menu item ---
-    const newItem = new MenuItem({
+    const itemData = {
       name,
       description,
       pricingType,
-      price: pricingType === "single" ? price : null,
-      variantRates: pricingType === "variant" ? variantRates : null,
-      discount: discountData,
       type,
       category,
       available,
       image,
       user: req.user._id,
-    });
+    };
 
+    // ---- SINGLE ITEM ----
+    if (pricingType === "single") {
+      if (!price)
+        return res.status(400).json({ error: "Single price required" });
+      itemData.price = price;
+      itemData.discount = normalizeDiscount(discount);
+    }
+
+    // ---- VARIANT ITEM ----
+    if (pricingType === "variant") {
+      if (
+        !variantRates ||
+        (!variantRates.quarter && !variantRates.half && !variantRates.full)
+      ) {
+        return res
+          .status(400)
+          .json({ error: "At least one variant rate required" });
+      }
+      ["quarter", "half", "full"].forEach((key) => {
+        if (variantRates[key])
+          variantRates[key].discount = normalizeDiscount(
+            variantRates[key].discount
+          );
+      });
+      itemData.variantRates = variantRates;
+    }
+
+    // ---- COMBO ITEM ----
+    // ---- COMBO ITEM ----
+    if (pricingType === "combo") {
+      if (
+        !comboPrice ||
+        !comboItems ||
+        !Array.isArray(comboItems) ||
+        comboItems.length === 0
+      ) {
+        return res
+          .status(400)
+          .json({ error: "Combo price and comboItems required" });
+      }
+
+      // 1️⃣ Fetch menu items for name snapshot
+      const menuItems = await MenuItem.find({
+        _id: { $in: comboItems.map((i) => i.menuItemId) },
+        deleted: false,
+      });
+
+      const comboItemsWithNames = comboItems.map((ci) => {
+        const found = menuItems.find((m) => m._id.toString() === ci.menuItemId);
+
+        if (!found) {
+          throw new Error("Invalid menuItemId in combo");
+        }
+
+        // validate variant if required
+        if (
+          ci.variant &&
+          found.pricingType === "variant" &&
+          !found.variantRates[ci.variant]
+        ) {
+          throw new Error(`Invalid variant "${ci.variant}" for ${found.name}`);
+        }
+
+        return {
+          menuItemId: found._id,
+          name: found.name, // ✅ snapshot
+          variant: ci.variant || null,
+          quantity: ci.quantity || 1,
+        };
+      });
+
+      itemData.pricingType = "combo";
+      itemData.isCombo = true;
+      itemData.comboPrice = comboPrice;
+      itemData.comboItems = comboItemsWithNames;
+
+      itemData.price = undefined;
+      itemData.discount = undefined;
+      itemData.variantRates = undefined;
+    }
+
+    const newItem = new MenuItem(itemData);
     await newItem.save();
 
     res.status(201).json({
@@ -148,7 +177,6 @@ exports.addMenuItems = async (req, res) => {
   }
 };
 
-
 // Update Menu details (Admin, JWT protected)
 exports.updateMenuItem = async (req, res) => {
   try {
@@ -159,104 +187,107 @@ exports.updateMenuItem = async (req, res) => {
       pricingType,
       price,
       variantRates,
+      discount,
+      comboPrice,
+      comboItems,
       type,
       category,
       available,
-      discount, // <- added discount support
     } = req.body;
 
-    const existingItem = await MenuItem.findById(id);
-    if (!existingItem) {
-      return res.status(404).json({ error: "Menu item not found" });
-    }
+    const item = await MenuItem.findById(id);
+    if (!item) return res.status(404).json({ error: "Menu item not found" });
 
-    // --- Handle image update (optional) ---
-    let image = existingItem.image;
+    const update = {};
+    const unset = {};
+
+    // ---------- BASIC FIELDS ----------
+    if (name !== undefined) update.name = name;
+    if (description !== undefined) update.description = description;
+    if (type !== undefined) update.type = type;
+    if (category !== undefined) update.category = category;
+    if (available !== undefined) update.available = available;
+
+    // ---------- IMAGE ----------
     if (req.file) {
-      if (image?.public_id) {
-        await deleteFromCloudinary(image.public_id);
+      if (item.image?.public_id) {
+        await deleteFromCloudinary(item.image.public_id);
       }
       const result = await uploadToCloudinary(req.file.buffer);
-      image = {
+      update.image = {
         url: result.secure_url,
         public_id: result.public_id,
       };
     }
 
-    // --- Handle pricing logic ---
+    // ---------- PRICING TYPE ----------
+    if (pricingType) update.pricingType = pricingType;
+
+    // ================= SINGLE =================
     if (pricingType === "single") {
-      if (!price) {
-        return res.status(400).json({ error: "Single price is required" });
-      }
-      existingItem.price = price;
-      existingItem.variantRates = { quarter: null, half: null, full: null };
-    } else if (pricingType === "variant") {
-      if (
-        !variantRates ||
-        (!variantRates.quarter && !variantRates.half && !variantRates.full)
-      ) {
-        return res.status(400).json({
-          error: "At least one variant rate (quarter/half/full) is required",
+      if (price !== undefined) update.price = price;
+      if (discount !== undefined)
+        update.discount = normalizeDiscount(discount);
+
+      unset.variantRates = "";
+      unset.comboItems = "";
+      unset.comboPrice = "";
+    }
+
+    // ================= VARIANT =================
+    if (pricingType === "variant") {
+      if (variantRates) {
+        Object.entries(variantRates).forEach(([key, value]) => {
+          if (value.price !== undefined) {
+            update[`variantRates.${key}.price`] = value.price;
+          }
+          if (value.discount !== undefined) {
+            update[`variantRates.${key}.discount`] =
+              normalizeDiscount(value.discount);
+          }
         });
       }
-      existingItem.price = null;
-      existingItem.variantRates = variantRates;
-    } else if (pricingType) {
-      // Only reject if pricingType is provided but invalid
-      return res
-        .status(400)
-        .json({ error: "Invalid pricing type. Must be 'single' or 'variant'" });
+
+      unset.price = "";
+      unset.discount = "";
+      unset.comboItems = "";
+      unset.comboPrice = "";
     }
 
-    // --- Handle discount update ---
-    if (discount) {
-      let discountData = { type: null, value: 0, active: false };
+    // ================= COMBO =================
+    if (pricingType === "combo") {
+      if (comboPrice !== undefined) update.comboPrice = comboPrice;
+      if (comboItems !== undefined) update.comboItems = comboItems;
 
-      if (discount.active === true) {
-        if (!["percentage", "flat"].includes(discount.type)) {
-          return res.status(400).json({ error: "Invalid discount type" });
-        }
+      update.isCombo = true;
 
-        if (typeof discount.value !== "number" || discount.value <= 0) {
-          return res.status(400).json({ error: "Invalid discount value" });
-        }
-
-        if (discount.type === "percentage" && discount.value > 100) {
-          return res
-            .status(400)
-            .json({ error: "Percentage discount cannot exceed 100" });
-        }
-
-        discountData = {
-          type: discount.type,
-          value: discount.value,
-          active: true,
-        };
-      }
-
-      existingItem.discount = discountData;
+      unset.price = "";
+      unset.discount = "";
+      unset.variantRates = "";
     }
 
-    // --- Update other fields ---
-    existingItem.pricingType = pricingType ?? existingItem.pricingType;
-    existingItem.name = name ?? existingItem.name;
-    existingItem.description = description ?? existingItem.description;
-    existingItem.type = type ?? existingItem.type;
-    existingItem.category = category ?? existingItem.category;
-    existingItem.available = available ?? existingItem.available;
-    existingItem.image = image;
+    // ---------- EXECUTE PATCH ----------
+    await MenuItem.findByIdAndUpdate(
+      id,
+      {
+        ...(Object.keys(update).length && { $set: update }),
+        ...(Object.keys(unset).length && { $unset: unset }),
+      },
+      { new: true, runValidators: true }
+    );
 
-    await existingItem.save();
+    const updatedItem = await MenuItem.findById(id);
 
     res.status(200).json({
       message: "Menu item updated successfully",
-      item: existingItem,
+      item: updatedItem,
     });
   } catch (err) {
     console.error("Update menu error:", err);
     res.status(500).json({ error: err.message });
   }
 };
+
 
 
 // Delete (Soft) Menu details (Admin, JWT protected)
