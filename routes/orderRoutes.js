@@ -8,7 +8,7 @@ const getTenant = require("../middleware/tenantMiddleware")
 // Create order client (public)
 router.post("/", getTenant, orderController.createOrder);
 // Get order client (public)
-router.get("/fingerprint", orderController.getOrdersByFingerPrint);
+router.get("/fingerprint", orderController.getLatestOrderByFingerPrint);
 // Get order admin
 router.get("/", authenticate, orderController.getAllOrders);
 // Update order

@@ -54,7 +54,6 @@ const menuItemSchema = new mongoose.Schema(
       },
     ],
     comboPrice: { type: Number, default: null },
-    isCombo: { type: Boolean, default: false },
     description: String,
     image: {
       url: { type: String },
