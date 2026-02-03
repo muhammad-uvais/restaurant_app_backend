@@ -80,10 +80,13 @@ exports.createOrder = async (req, res) => {
         variant = variantKey;
       }
       // ---- COMBO PRICING ----
-      else if (menuItem.isCombo) {
+      else if (menuItem.pricingType === "combo") {
         basePrice = Number(menuItem.comboPrice) || 0;
         discountedPrice = basePrice;
-        discountSnapshot = null;
+        discountSnapshot = {
+          type: null,
+          value: 0,
+        };
       }
 
       // Add to subtotal safely
@@ -239,7 +242,9 @@ exports.getLatestOrderByFingerPrint = async (req, res) => {
       .lean();
 
     if (!latestOrder) {
-      return res.status(404).json({ message: "No orders found for this fingerprint" });
+      return res
+        .status(404)
+        .json({ message: "No orders found for this fingerprint" });
     }
 
     res.status(200).json({ order: latestOrder });
@@ -248,7 +253,6 @@ exports.getLatestOrderByFingerPrint = async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 };
-
 
 // Update an Order using id from params, Admin
 exports.updateOrder = async (req, res) => {
