@@ -149,81 +149,79 @@ exports.createOrder = async (req, res) => {
 // Get All Orders ( Admin, JWT Protected)
 exports.getAllOrders = async (req, res) => {
   try {
-    const user = req.user;
-    if (!user) return res.status(401).json({ message: "Unauthorized" });
+    if (!req.user) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
 
-    const { status, range, page = 1, limit = 10 } = req.query;
+    const { role, _id, createdBy } = req.user;
+    const { status, range = "all", page = 1, limit = 10 } = req.query;
 
-    // Validate status
+    let ownerAdminId;
+
+    if (role === "admin") {
+      ownerAdminId = _id; 
+    }
+
+    if (role === "staff") {
+      ownerAdminId = createdBy; 
+    }
+
+    // ✅ Validate status
     const allowedStatus = ["pending", "completed", "cancelled"];
-    if (!status || !allowedStatus.includes(status)) {
+    if (!status || !allowedStatus.includes(status.toLowerCase())) {
       return res.status(400).json({
-        message:
-          "Status is required and must be pending, completed, or cancelled",
+        message: "Status must be pending, completed, or cancelled",
       });
     }
 
-    // Date range
+    // 📅 Date range
     const now = new Date();
-    let fromDate,
-      toDate = now;
+    let fromDate;
 
     switch (range) {
       case "2d":
-        fromDate = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
+        fromDate = new Date(now.getTime() - 2 * 86400000);
         break;
       case "7d":
-        fromDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        fromDate = new Date(now.getTime() - 7 * 86400000);
         break;
       case "15d":
-        fromDate = new Date(now.getTime() - 15 * 24 * 60 * 60 * 1000);
+        fromDate = new Date(now.getTime() - 15 * 86400000);
         break;
       case "30d":
-        fromDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-        break;
-      case "6m":
-        fromDate = new Date(now);
-        fromDate.setMonth(fromDate.getMonth() - 6);
-        break;
-      case "1y":
-        fromDate = new Date(now);
-        fromDate.setFullYear(fromDate.getFullYear() - 1);
-        break;
-      case "all":
-        fromDate = new Date(0);
+        fromDate = new Date(now.getTime() - 30 * 86400000);
         break;
       default:
-        // Default: last 1 day for completed/cancelled, all for pending
-        if (status === "pending") fromDate = new Date(0);
-        else fromDate = new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000);
+        fromDate = new Date(0);
     }
 
+    // ✅ FINAL FILTER (single source of truth)
     const filter = {
-      user: user._id,
-      status,
-      createdAt: { $gte: fromDate, $lte: toDate },
+      user: ownerAdminId, // 🔥 admin id ALWAYS
+      status: status.toLowerCase(),
+      createdAt: { $gte: fromDate, $lte: now },
     };
 
-    // Pagination
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const skip = (Number(page) - 1) * Number(limit);
+
     const orders = await Order.find(filter)
       .sort({ createdAt: -1 })
       .skip(skip)
-      .limit(parseInt(limit));
+      .limit(Number(limit));
+
     const totalOrders = await Order.countDocuments(filter);
-    const totalPages = Math.ceil(totalOrders / limit);
 
     res.status(200).json({
       totalOrders,
-      totalPages,
-      currentPage: parseInt(page),
+      totalPages: Math.ceil(totalOrders / limit),
+      currentPage: Number(page),
       from: fromDate,
-      to: toDate,
+      to: now,
       orders,
     });
-  } catch (err) {
-    console.error("Error fetching orders:", err);
-    res.status(500).json({ message: err.message });
+  } catch (error) {
+    console.error("Get orders error:", error);
+    res.status(500).json({ message: "Server error" });
   }
 };
 

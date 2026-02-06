@@ -3,7 +3,7 @@ const bcrypt = require("bcryptjs");
 const User = require("../models/User");
 const Restaurant = require("../models/Restaurant");
 const generateToken = require("../utils/generateToken");
-const generateQR = require("../utils/generateQR")
+const generateQR = require("../utils/generateQR");
 
 // Register User
 exports.registerUser = async (req, res) => {
@@ -12,7 +12,9 @@ exports.registerUser = async (req, res) => {
     const creator = req.user;
 
     if (!name || !email || !password || !role) {
-      return res.status(400).json({ message: "Name, email, password, and role are required." });
+      return res
+        .status(400)
+        .json({ message: "Name, email, password, and role are required." });
     }
 
     const existingUser = await User.findOne({ email });
@@ -28,7 +30,8 @@ exports.registerUser = async (req, res) => {
       case "admin": {
         if (!domain || !restaurantName) {
           return res.status(400).json({
-            message: "Domain and restaurantName are required for admin registration.",
+            message:
+              "Domain and restaurantName are required for admin registration.",
           });
         }
 
@@ -36,7 +39,12 @@ exports.registerUser = async (req, res) => {
 
         const createdBy = creator ? creator._id : null;
 
-        const admin = await User.create({ ...baseData, domain, restaurantName, createdBy });
+        const admin = await User.create({
+          ...baseData,
+          domain,
+          restaurantName,
+          createdBy,
+        });
 
         const restaurant = await Restaurant.create({
           user: admin._id,
@@ -72,7 +80,9 @@ exports.registerUser = async (req, res) => {
       case "staff": {
         const admin = await User.findById(creator._id).populate("restaurantId");
         if (!admin || !admin.restaurantId) {
-          return res.status(400).json({ message: "Admin does not have a restaurant assigned." });
+          return res
+            .status(400)
+            .json({ message: "Admin does not have a restaurant assigned." });
         }
 
         const staff = await User.create({
@@ -136,7 +146,9 @@ exports.registerUser = async (req, res) => {
     }
   } catch (err) {
     console.error("User registration error:", err);
-    return res.status(500).json({ message: "Server error", error: err.message });
+    return res
+      .status(500)
+      .json({ message: "Server error", error: err.message });
   }
 };
 
@@ -146,7 +158,9 @@ exports.loginUser = async (req, res) => {
     const { email, password } = req.body;
 
     if (!email || !password) {
-      return res.status(400).json({ message: "Email and password are required." });
+      return res
+        .status(400)
+        .json({ message: "Email and password are required." });
     }
 
     // Fetch user with restaurant info if exists
@@ -157,7 +171,12 @@ exports.loginUser = async (req, res) => {
     }
 
     // Generate JWT including role
-    const token = generateToken(user._id, user.role);
+    const token = generateToken(
+      user._id,
+      user.role,
+      user.restaurantId,
+      user.createdBy
+    );
 
     // Prepare response object
     const response = {
@@ -168,7 +187,9 @@ exports.loginUser = async (req, res) => {
         email: user.email,
         role: user.role,
         restaurantId: user.restaurantId ? user.restaurantId._id : null,
-        restaurantName: user.restaurantId ? user.restaurantId.restaurantName : null,
+        restaurantName: user.restaurantId
+          ? user.restaurantId.restaurantName
+          : null,
         qrCode: user.restaurantId ? user.restaurantId.qrCode : null,
         createdBy: user.createdBy || null, // for staff
       },
@@ -200,10 +221,12 @@ exports.updateUser = async (req, res) => {
     const updatedUser = await User.findByIdAndUpdate(
       id,
       { $set: updateData },
-      { new: true }
+      { new: true },
     );
 
-    res.status(200).json({ message: "User updated successfully", user: updatedUser });
+    res
+      .status(200)
+      .json({ message: "User updated successfully", user: updatedUser });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Server error", error: err.message });
@@ -250,7 +273,10 @@ exports.getAllStaffByAdmin = async (req, res) => {
   }
 
   try {
-    const staff = await User.find({ role: "staff", createdBy: creator._id }).lean();
+    const staff = await User.find({
+      role: "staff",
+      createdBy: creator._id,
+    }).lean();
 
     res.status(200).json({
       message: "Staff fetched successfully",
@@ -262,9 +288,3 @@ exports.getAllStaffByAdmin = async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 };
-
-
-
-
-
-
