@@ -33,11 +33,30 @@ exports.getMenuByTenant = async (req, res) => {
 // Get Menu details (Admin, JWT protected)
 exports.getMenuItems = async (req, res) => {
   try {
-    const user = req.user;
-    if (!user) return res.status(401).json({ message: "Unauthorized" });
-    const menuItems = await MenuItem.find({ user: user._id, deleted: false });
+    if (!req.user) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    const { role, _id, createdBy } = req.user;
+    let ownerAdminId;
+
+    if (role === "admin") {
+      ownerAdminId = _id; 
+    }
+
+    if (role === "staff") {
+      ownerAdminId = createdBy; 
+    }
+
+    const filter = {
+      user: ownerAdminId, // 🔥 admin id ALWAYS
+      deleted: false
+    };
+
+    const menuItems = await MenuItem.find(filter);
+    const totalMenuItems = await MenuItem.countDocuments(filter);
     res.status(200).json({
       message: `Menu Items fetched successfully`,
+      totalMenuItems,
       menu: menuItems,
     });
   } catch (err) {
@@ -292,9 +311,6 @@ exports.updateMenuItem = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
-
-
-
 
 // Delete (Soft) Menu details (Admin, JWT protected)
 exports.deleteMenuItem = async (req, res) => {
