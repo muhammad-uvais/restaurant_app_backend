@@ -10,7 +10,7 @@ const { authorizeRoles } =  require("../middleware/roleMiddleware")
 router.get("/public", getTenant, menuController.getMenuByTenant)
 router.get("/", authenticate, authorizeRoles("admin","staff"), menuController.getMenuItems);
 router.post("/", authenticate, upload.single('file'), authorizeRoles("admin"), menuController.addMenuItems);
-router.put("/:id", upload.single('file'), authorizeRoles("admin"), menuController.updateMenuItem);
+router.put("/:id", authenticate, upload.single('file'), authorizeRoles("admin"), menuController.updateMenuItem);
 router.delete("/:id", authorizeRoles("admin"), menuController.deleteMenuItem);
 
 
