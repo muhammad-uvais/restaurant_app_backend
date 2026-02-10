@@ -362,6 +362,7 @@ exports.getAllStaffByAdmin = async (req, res) => {
   try {
     const staff = await User.find({
       role: "staff",
+      isDeleted: false,
       createdBy: creator._id,
     }).lean();
 

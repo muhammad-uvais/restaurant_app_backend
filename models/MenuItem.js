@@ -64,7 +64,7 @@ const menuItemSchema = new mongoose.Schema(
       enum: ["veg", "non-veg", "mixed"],
       required: false,
     },
-    category: String,
+    category: String, 
     available: {
       type: Boolean,
       default: true,
