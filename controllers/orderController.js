@@ -295,20 +295,29 @@ exports.updateOrder = async (req, res) => {
       updatePayload.address = null;
     }
 
-    // ================================
-    // ✅ ITEMS UPDATE WITH FIXED VARIANT LOGIC
-    // ================================
+    // =====================================
+    // ✅ REMOVE ITEMS FIRST
+    // =====================================
+    let baseItems = [...existingOrder.items];
+
+    if (Array.isArray(updates.removeItemIds) && updates.removeItemIds.length) {
+      baseItems = baseItems.filter(
+        (item) => !updates.removeItemIds.includes(item._id.toString())
+      );
+    }
+
+    // =====================================
+    // ✅ ADD / REPLACE ITEMS
+    // =====================================
     if (Array.isArray(updates.items)) {
-      if (!updates.items.length) {
+      if (!updates.items.length && updates.replaceItems) {
         return res.status(400).json({ message: "Order must have items" });
       }
 
       const menuItemIds = updates.items.map((i) => i.menuItemId);
-
       const menuItems = await MenuItem.find({ _id: { $in: menuItemIds } });
       const menuMap = new Map(menuItems.map((m) => [m._id.toString(), m]));
 
-      let subtotal = 0;
       let enrichedItems = [];
 
       for (const item of updates.items) {
@@ -319,7 +328,6 @@ exports.updateOrder = async (req, res) => {
           });
         }
 
-        // ✅ PRICE FIX
         let price;
         let discountApplied = menuItem.discount || { type: null, value: 0 };
 
@@ -335,7 +343,7 @@ exports.updateOrder = async (req, res) => {
             });
           }
 
-          if (variantData.price === null || variantData.price === undefined) {
+          if (variantData.price == null) {
             return res.status(400).json({
               message: `Price not set for variant '${item.variant}' of ${menuItem.name}`,
             });
@@ -351,7 +359,6 @@ exports.updateOrder = async (req, res) => {
           });
         }
 
-        // ✅ DISCOUNT
         let discountedPrice = price;
 
         if (discountApplied?.active) {
@@ -363,8 +370,6 @@ exports.updateOrder = async (req, res) => {
         }
 
         discountedPrice = Math.max(Number(discountedPrice), 0);
-
-        subtotal += discountedPrice * item.quantity;
 
         enrichedItems.push({
           menuItemId: menuItem._id,
@@ -378,38 +383,41 @@ exports.updateOrder = async (req, res) => {
         });
       }
 
-      const finalItems = updates.replaceItems
+      baseItems = updates.replaceItems
         ? enrichedItems
-        : [...existingOrder.items, ...enrichedItems];
+        : [...baseItems, ...enrichedItems];
+    }
 
-      subtotal = finalItems.reduce(
-        (sum, item) =>
-          sum + Number(item.discountedPrice || item.price) * Number(item.quantity || 1),
-        0
-      );
+    // =====================================
+    // ✅ RECALCULATE TOTALS
+    // =====================================
+    let subtotal = baseItems.reduce(
+      (sum, item) =>
+        sum + Number(item.discountedPrice || item.price) * Number(item.quantity || 1),
+      0
+    );
 
-      if (isNaN(subtotal)) {
-        return res.status(400).json({
-          message: "Subtotal became NaN. Check variant prices.",
-        });
-      }
-
-      const restaurant = await Restaurant.findOne({
-        user: existingOrder.user,
-        deleted: false,
-      });
-
-      const gstRate = restaurant?.gstEnabled ? restaurant.gstRate : 0;
-      const gstAmount = (subtotal * gstRate) / 100;
-
-      Object.assign(updatePayload, {
-        items: finalItems,
-        subtotal,
-        gstRate,
-        gstAmount,
-        totalAmount: subtotal + gstAmount,
+    if (isNaN(subtotal)) {
+      return res.status(400).json({
+        message: "Subtotal became NaN. Check variant prices.",
       });
     }
+
+    const restaurant = await Restaurant.findOne({
+      user: existingOrder.user,
+      deleted: false,
+    });
+
+    const gstRate = restaurant?.gstEnabled ? restaurant.gstRate : 0;
+    const gstAmount = (subtotal * gstRate) / 100;
+
+    Object.assign(updatePayload, {
+      items: baseItems,
+      subtotal,
+      gstRate,
+      gstAmount,
+      totalAmount: subtotal + gstAmount,
+    });
 
     const updatedOrder = await Order.findByIdAndUpdate(
       orderId,
