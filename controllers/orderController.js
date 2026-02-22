@@ -261,7 +261,6 @@ exports.updateOrder = async (req, res) => {
     const ALLOWED_ORDER_TYPES = ["Eat Here", "Take Away", "Delivery"];
     const SIMPLE_FIELDS = ["status", "tableId", "address", "orderType"];
 
-    // Fetch existing order (needed for items + GST calc)
     const existingOrder = await Order.findById(orderId);
     if (!existingOrder) {
       return res.status(404).json({ message: "Order not found" });
@@ -269,34 +268,25 @@ exports.updateOrder = async (req, res) => {
 
     const updatePayload = {};
 
-    // Validate orderType (if provided)
     if (updates.orderType && !ALLOWED_ORDER_TYPES.includes(updates.orderType)) {
       return res.status(400).json({ message: "Invalid orderType" });
     }
 
-    // Apply simple field updates
     SIMPLE_FIELDS.forEach((field) => {
       if (updates[field] !== undefined) {
         updatePayload[field] = updates[field];
       }
     });
 
-    // Enforce orderType-specific rules
     if (updates.orderType === "Delivery") {
-      if (!updates.address) {
-        return res
-          .status(400)
-          .json({ message: "Address is required for delivery orders" });
-      }
+      if (!updates.address)
+        return res.status(400).json({ message: "Address required for Delivery" });
       updatePayload.tableId = null;
     }
 
     if (updates.orderType === "Eat Here") {
-      if (!updates.tableId) {
-        return res
-          .status(400)
-          .json({ message: "Table ID is required for Eat Here orders" });
-      }
+      if (!updates.tableId)
+        return res.status(400).json({ message: "Table ID required for Eat Here" });
       updatePayload.address = null;
     }
 
@@ -305,12 +295,12 @@ exports.updateOrder = async (req, res) => {
       updatePayload.address = null;
     }
 
-    // Recalculate items only if items are updated
+    // ================================
+    // ✅ ITEMS UPDATE WITH FIXED VARIANT LOGIC
+    // ================================
     if (Array.isArray(updates.items)) {
       if (!updates.items.length) {
-        return res
-          .status(400)
-          .json({ message: "Order must have at least one item" });
+        return res.status(400).json({ message: "Order must have items" });
       }
 
       const menuItemIds = updates.items.map((i) => i.menuItemId);
@@ -319,7 +309,7 @@ exports.updateOrder = async (req, res) => {
       const menuMap = new Map(menuItems.map((m) => [m._id.toString(), m]));
 
       let subtotal = 0;
-      const enrichedItems = [];
+      let enrichedItems = [];
 
       for (const item of updates.items) {
         const menuItem = menuMap.get(item.menuItemId);
@@ -329,21 +319,52 @@ exports.updateOrder = async (req, res) => {
           });
         }
 
+        // ✅ PRICE FIX
         let price;
+        let discountApplied = menuItem.discount || { type: null, value: 0 };
 
         if (menuItem.pricingType === "single") {
-          price = menuItem.price;
+          price = Number(menuItem.price);
         } else {
-          const variantKey = item.variant?.toLowerCase();
-          if (!variantKey || !menuItem.variantRates[variantKey]) {
+          const variantKey = item.variant?.toLowerCase()?.trim();
+          const variantData = menuItem.variantRates?.[variantKey];
+
+          if (!variantKey || !variantData) {
             return res.status(400).json({
               message: `Invalid variant '${item.variant}' for ${menuItem.name}`,
             });
           }
-          price = menuItem.variantRates[variantKey];
+
+          if (variantData.price === null || variantData.price === undefined) {
+            return res.status(400).json({
+              message: `Price not set for variant '${item.variant}' of ${menuItem.name}`,
+            });
+          }
+
+          price = Number(variantData.price);
+          discountApplied = variantData.discount || discountApplied;
         }
 
-        subtotal += price * item.quantity;
+        if (isNaN(price)) {
+          return res.status(400).json({
+            message: `Invalid price for ${menuItem.name}`,
+          });
+        }
+
+        // ✅ DISCOUNT
+        let discountedPrice = price;
+
+        if (discountApplied?.active) {
+          if (discountApplied.type === "percentage") {
+            discountedPrice = price - (price * discountApplied.value) / 100;
+          } else if (discountApplied.type === "flat") {
+            discountedPrice = price - discountApplied.value;
+          }
+        }
+
+        discountedPrice = Math.max(Number(discountedPrice), 0);
+
+        subtotal += discountedPrice * item.quantity;
 
         enrichedItems.push({
           menuItemId: menuItem._id,
@@ -351,11 +372,28 @@ exports.updateOrder = async (req, res) => {
           variant: menuItem.pricingType === "variant" ? item.variant : null,
           quantity: item.quantity,
           price,
+          discountedPrice,
+          discountApplied,
           customizations: item.customizations || "",
         });
       }
 
-      // GST calculation
+      const finalItems = updates.replaceItems
+        ? enrichedItems
+        : [...existingOrder.items, ...enrichedItems];
+
+      subtotal = finalItems.reduce(
+        (sum, item) =>
+          sum + Number(item.discountedPrice || item.price) * Number(item.quantity || 1),
+        0
+      );
+
+      if (isNaN(subtotal)) {
+        return res.status(400).json({
+          message: "Subtotal became NaN. Check variant prices.",
+        });
+      }
+
       const restaurant = await Restaurant.findOne({
         user: existingOrder.user,
         deleted: false,
@@ -365,7 +403,7 @@ exports.updateOrder = async (req, res) => {
       const gstAmount = (subtotal * gstRate) / 100;
 
       Object.assign(updatePayload, {
-        items: enrichedItems,
+        items: finalItems,
         subtotal,
         gstRate,
         gstAmount,
@@ -373,11 +411,10 @@ exports.updateOrder = async (req, res) => {
       });
     }
 
-    // Update order
     const updatedOrder = await Order.findByIdAndUpdate(
       orderId,
       { $set: updatePayload },
-      { new: true },
+      { new: true }
     );
 
     res.status(200).json({
