@@ -159,11 +159,11 @@ exports.getAllOrders = async (req, res) => {
     let ownerAdminId;
 
     if (role === "admin") {
-      ownerAdminId = _id; 
+      ownerAdminId = _id;
     }
 
     if (role === "staff") {
-      ownerAdminId = createdBy; 
+      ownerAdminId = createdBy;
     }
 
     // ✅ Validate status
@@ -280,13 +280,17 @@ exports.updateOrder = async (req, res) => {
 
     if (updates.orderType === "Delivery") {
       if (!updates.address)
-        return res.status(400).json({ message: "Address required for Delivery" });
+        return res
+          .status(400)
+          .json({ message: "Address required for Delivery" });
       updatePayload.tableId = null;
     }
 
     if (updates.orderType === "Eat Here") {
       if (!updates.tableId)
-        return res.status(400).json({ message: "Table ID required for Eat Here" });
+        return res
+          .status(400)
+          .json({ message: "Table ID required for Eat Here" });
       updatePayload.address = null;
     }
 
@@ -302,7 +306,7 @@ exports.updateOrder = async (req, res) => {
 
     if (Array.isArray(updates.removeItemIds) && updates.removeItemIds.length) {
       baseItems = baseItems.filter(
-        (item) => !updates.removeItemIds.includes(item._id.toString())
+        (item) => !updates.removeItemIds.includes(item._id.toString()),
       );
     }
 
@@ -331,9 +335,18 @@ exports.updateOrder = async (req, res) => {
         let price;
         let discountApplied = menuItem.discount || { type: null, value: 0 };
 
+        // ✅ SINGLE ITEM
         if (menuItem.pricingType === "single") {
+          if (menuItem.price == null) {
+            return res.status(400).json({
+              message: `Price not set for ${menuItem.name}`,
+            });
+          }
           price = Number(menuItem.price);
-        } else {
+        }
+
+        // ✅ VARIANT ITEM
+        else if (menuItem.pricingType === "variant") {
           const variantKey = item.variant?.toLowerCase()?.trim();
           const variantData = menuItem.variantRates?.[variantKey];
 
@@ -351,6 +364,23 @@ exports.updateOrder = async (req, res) => {
 
           price = Number(variantData.price);
           discountApplied = variantData.discount || discountApplied;
+        }
+
+        // ✅ COMBO ITEM
+        else if (menuItem.pricingType === "combo") {
+          if (menuItem.comboPrice == null) {
+            return res.status(400).json({
+              message: `Combo price not set for ${menuItem.name}`,
+            });
+          }
+          price = Number(menuItem.comboPrice);
+        }
+
+        // ❌ UNKNOWN TYPE
+        else {
+          return res.status(400).json({
+            message: `Invalid pricingType for ${menuItem.name}`,
+          });
         }
 
         if (isNaN(price)) {
@@ -393,8 +423,9 @@ exports.updateOrder = async (req, res) => {
     // =====================================
     let subtotal = baseItems.reduce(
       (sum, item) =>
-        sum + Number(item.discountedPrice || item.price) * Number(item.quantity || 1),
-      0
+        sum +
+        Number(item.discountedPrice || item.price) * Number(item.quantity || 1),
+      0,
     );
 
     if (isNaN(subtotal)) {
@@ -422,7 +453,7 @@ exports.updateOrder = async (req, res) => {
     const updatedOrder = await Order.findByIdAndUpdate(
       orderId,
       { $set: updatePayload },
-      { new: true }
+      { new: true },
     );
 
     res.status(200).json({
