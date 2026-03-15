@@ -42,7 +42,7 @@ exports.createOrder = async (req, res) => {
     // 2 Build order items safely
     for (const item of items) {
       const menuItem = menuItems.find(
-        (m) => m._id.toString() === item.menuItemId
+        (m) => m._id.toString() === item.menuItemId,
       );
       if (!menuItem) {
         return res
@@ -179,6 +179,9 @@ exports.getAllOrders = async (req, res) => {
     let fromDate;
 
     switch (range) {
+      case "24h":
+        fromDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+        break;
       case "2d":
         fromDate = new Date(now.getTime() - 2 * 86400000);
         break;
@@ -316,7 +319,7 @@ exports.updateOrder = async (req, res) => {
 
     if (Array.isArray(updates.removeItemIds) && updates.removeItemIds.length) {
       baseItems = baseItems.filter(
-        (item) => !updates.removeItemIds.includes(item._id.toString())
+        (item) => !updates.removeItemIds.includes(item._id.toString()),
       );
     }
 
@@ -435,7 +438,7 @@ exports.updateOrder = async (req, res) => {
       (sum, item) =>
         sum +
         Number(item.discountedPrice || item.price) * Number(item.quantity || 1),
-      0
+      0,
     );
 
     if (isNaN(subtotal)) {
@@ -463,7 +466,7 @@ exports.updateOrder = async (req, res) => {
     const updatedOrder = await Order.findByIdAndUpdate(
       orderId,
       { $set: updatePayload },
-      { new: true }
+      { new: true },
     );
 
     res.status(200).json({
