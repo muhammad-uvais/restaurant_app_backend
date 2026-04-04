@@ -3,7 +3,7 @@ const bcrypt = require("bcryptjs");
 const User = require("../models/User");
 const Restaurant = require("../models/Restaurant");
 const generateToken = require("../utils/generateToken");
-const generateQR = require("../utils/generateQR");
+const generateAndUploadQR = require("../utils/generateQR");
 
 // Register User
 exports.registerUser = async (req, res) => {
@@ -30,12 +30,14 @@ exports.registerUser = async (req, res) => {
       case "admin": {
         if (!domain || !restaurantName) {
           return res.status(400).json({
-            message:
-              "Domain and restaurantName are required for admin registration.",
+            message: "Domain and restaurantName are required.",
           });
         }
 
-        const qrCode = await generateQR(domain);
+        const path = require("path");
+        const logoPath = path.join(__dirname, "../assets/logo.jpeg");
+
+        const qrCode = await generateAndUploadQR(domain, logoPath);
 
         const createdBy = creator ? creator._id : null;
 
@@ -50,14 +52,18 @@ exports.registerUser = async (req, res) => {
           user: admin._id,
           name,
           restaurantName,
-          qrCode,
           domain,
+          qrCode: {
+            url: qrCode.url,
+            public_id: qrCode.public_id,
+          },
         });
 
         admin.restaurantId = restaurant._id;
         await admin.save();
 
         const token = generateToken(admin._id);
+
         return res.status(201).json({
           message: "Admin registered successfully with restaurant.",
           user: {
@@ -211,7 +217,7 @@ exports.updateUser = async (req, res) => {
 
   try {
     const userToUpdate = await User.findById(id);
-    
+
     if (!userToUpdate) {
       return res.status(404).json({ message: "User not found" });
     }
@@ -223,23 +229,23 @@ exports.updateUser = async (req, res) => {
 
     // Prevent editing superadmin
     if (userToUpdate.role === 'superadmin') {
-      return res.status(403).json({ 
-        message: "Superadmin cannot be edited" 
+      return res.status(403).json({
+        message: "Superadmin cannot be edited"
       });
     }
 
     // Admin can only be edited by superadmin
     if (userToUpdate.role === 'admin' && currentUser.role !== 'superadmin') {
-      return res.status(403).json({ 
-        message: "Only superadmin can edit admin users" 
+      return res.status(403).json({
+        message: "Only superadmin can edit admin users"
       });
     }
 
     // Staff can be edited by superadmin or admin
     if (userToUpdate.role === 'staff') {
       if (currentUser.role !== 'superadmin' && currentUser.role !== 'admin') {
-        return res.status(403).json({ 
-          message: "Only superadmin or admin can edit staff users" 
+        return res.status(403).json({
+          message: "Only superadmin or admin can edit staff users"
         });
       }
     }
@@ -257,7 +263,7 @@ exports.updateUser = async (req, res) => {
     // For ADMIN users: update both User and Restaurant
     if (userToUpdate.role === 'admin') {
       const { qrcode, restaurantName, ...userUpdateData } = updateData;
-      
+
       // Update user (name is included in userUpdateData)
       const updatedUser = await User.findByIdAndUpdate(
         id,
@@ -267,12 +273,12 @@ exports.updateUser = async (req, res) => {
 
       // Prepare restaurant update data
       const restaurantUpdateData = {};
-      
+
       // If name is provided, update it in restaurant too
       if (updateData.name) restaurantUpdateData.name = updateData.name;
       if (qrcode) restaurantUpdateData.qrcode = qrcode;
       if (restaurantName) restaurantUpdateData.restaurantName = restaurantName;
-      
+
       // Only update restaurant if there's data to update
       if (Object.keys(restaurantUpdateData).length > 0) {
         restaurantUpdateData.updatedAt = new Date();
@@ -284,21 +290,21 @@ exports.updateUser = async (req, res) => {
         );
 
         if (!updatedRestaurant) {
-          return res.status(404).json({ 
-            message: "User updated but restaurant not found for this admin" 
+          return res.status(404).json({
+            message: "User updated but restaurant not found for this admin"
           });
         }
 
-        return res.status(200).json({ 
-          message: "User and restaurant updated successfully", 
+        return res.status(200).json({
+          message: "User and restaurant updated successfully",
           user: updatedUser,
           restaurant: updatedRestaurant
         });
       }
 
-      return res.status(200).json({ 
-        message: "User updated successfully", 
-        user: updatedUser 
+      return res.status(200).json({
+        message: "User updated successfully",
+        user: updatedUser
       });
     }
 
@@ -309,9 +315,9 @@ exports.updateUser = async (req, res) => {
       { new: true, runValidators: true }
     ).select('-password');
 
-    res.status(200).json({ 
-      message: "User updated successfully", 
-      user: updatedUser 
+    res.status(200).json({
+      message: "User updated successfully",
+      user: updatedUser
     });
 
   } catch (err) {
@@ -384,7 +390,7 @@ exports.deleteUser = async (req, res) => {
 
   try {
     const userToDelete = await User.findById(id);
-    
+
     if (!userToDelete) {
       return res.status(404).json({ message: "User not found" });
     }
@@ -397,31 +403,31 @@ exports.deleteUser = async (req, res) => {
 
     // Prevent deleting superadmin
     if (userToDelete.role === 'superadmin') {
-      return res.status(403).json({ 
-        message: "Superadmin cannot be deleted" 
+      return res.status(403).json({
+        message: "Superadmin cannot be deleted"
       });
     }
 
     // Admin can only be deleted by superadmin
     if (userToDelete.role === 'admin' && currentUser.role !== 'superadmin') {
-      return res.status(403).json({ 
-        message: "Only superadmin can delete admin users" 
+      return res.status(403).json({
+        message: "Only superadmin can delete admin users"
       });
     }
 
     // Staff can be deleted by superadmin or admin
     if (userToDelete.role === 'staff') {
       if (currentUser.role !== 'superadmin' && currentUser.role !== 'admin') {
-        return res.status(403).json({ 
-          message: "Only superadmin or admin can delete staff users" 
+        return res.status(403).json({
+          message: "Only superadmin or admin can delete staff users"
         });
       }
     }
 
     // Prevent self-deletion
     if (userToDelete._id.toString() === currentUser._id.toString()) {
-      return res.status(403).json({ 
-        message: "You cannot delete your own account" 
+      return res.status(403).json({
+        message: "You cannot delete your own account"
       });
     }
 
