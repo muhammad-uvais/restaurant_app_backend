@@ -2,6 +2,7 @@
 const Order = require("../models/Order");
 const Restaurant = require("../models/Restaurant");
 const MenuItem = require("../models/MenuItem");
+const orderEmitter = require("../events/orderEvents");
 const calculateDiscountedPrice = require("../utils/calculateDiscountedPrice");
 const normalizeDiscount = require("../utils/normalizeDiscount");
 
@@ -138,6 +139,8 @@ exports.createOrder = async (req, res) => {
       orderType,
       address: finalAddress,
     });
+    console.log("📤 Emitting event...");
+    orderEmitter.emit("orderCreated", order);
 
     res.status(201).json({ message: "Order placed successfully", order });
   } catch (error) {
@@ -348,7 +351,6 @@ exports.updateOrder = async (req, res) => {
         let price;
         let discountApplied = menuItem.discount || { type: null, value: 0 };
 
-        // ✅ SINGLE ITEM
         if (menuItem.pricingType === "single") {
           if (menuItem.price == null) {
             return res.status(400).json({
@@ -356,10 +358,7 @@ exports.updateOrder = async (req, res) => {
             });
           }
           price = Number(menuItem.price);
-        }
-
-        // ✅ VARIANT ITEM
-        else if (menuItem.pricingType === "variant") {
+        } else if (menuItem.pricingType === "variant") {
           const variantKey = item.variant?.toLowerCase()?.trim();
           const variantData = menuItem.variantRates?.[variantKey];
 
@@ -377,20 +376,14 @@ exports.updateOrder = async (req, res) => {
 
           price = Number(variantData.price);
           discountApplied = variantData.discount || discountApplied;
-        }
-
-        // ✅ COMBO ITEM
-        else if (menuItem.pricingType === "combo") {
+        } else if (menuItem.pricingType === "combo") {
           if (menuItem.comboPrice == null) {
             return res.status(400).json({
               message: `Combo price not set for ${menuItem.name}`,
             });
           }
           price = Number(menuItem.comboPrice);
-        }
-
-        // ❌ UNKNOWN TYPE
-        else {
+        } else {
           return res.status(400).json({
             message: `Invalid pricingType for ${menuItem.name}`,
           });
@@ -432,7 +425,7 @@ exports.updateOrder = async (req, res) => {
     }
 
     // =====================================
-    // ✅ RECALCULATE TOTALS
+    // ✅ RECALCULATE TOTALS (FIX APPLIED HERE)
     // =====================================
     let subtotal = baseItems.reduce(
       (sum, item) =>
@@ -455,12 +448,23 @@ exports.updateOrder = async (req, res) => {
     const gstRate = restaurant?.gstEnabled ? restaurant.gstRate : 0;
     const gstAmount = (subtotal * gstRate) / 100;
 
+    // ✅ FIX: preserve / apply delivery charge
+    let deliveryCharges = 0;
+
+    const finalOrderType = updates.orderType || existingOrder.orderType;
+
+    if (finalOrderType === "Delivery") {
+      deliveryCharges =
+        existingOrder.deliveryCharges ?? restaurant?.deliveryCharges ?? 0;
+    }
+
     Object.assign(updatePayload, {
       items: baseItems,
       subtotal,
       gstRate,
       gstAmount,
-      totalAmount: subtotal + gstAmount,
+      deliveryCharges,
+      totalAmount: subtotal + gstAmount + deliveryCharges,
     });
 
     const updatedOrder = await Order.findByIdAndUpdate(
@@ -468,6 +472,12 @@ exports.updateOrder = async (req, res) => {
       { $set: updatePayload },
       { new: true },
     );
+
+    if (updates.status && updates.status !== existingOrder.status) {
+      console.log("📢 Status changed → emitting event");
+
+      orderEmitter.emit("orderStatusChanged", updatedOrder);
+    }
 
     res.status(200).json({
       message: "Order updated successfully",

@@ -1,7 +1,7 @@
 {
-  "name": "restaurantapp",
-  "version": "2.1.0",
-  "description": "version updated",
+  "name": "TapnBite",
+  "version": "3.0.0",
+  "description": "Real Time Notification",
   "main": "app.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
