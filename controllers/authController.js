@@ -329,7 +329,7 @@ exports.updateUser = async (req, res) => {
 // Get all admins (superadmin only)
 exports.getAllAdmins = async (req, res) => {
   try {
-    const admins = await User.find({ role: "admin" }).lean();
+    const admins = await User.find({ role: "admin", isDeleted: false }).lean();
 
     res.status(200).json({
       message: "Admins fetched successfully",
@@ -345,7 +345,7 @@ exports.getAllAdmins = async (req, res) => {
 // Get all staff (superadmin only)
 exports.getAllStaff = async (req, res) => {
   try {
-    const staff = await User.find({ role: "staff" }).lean();
+    const staff = await User.find({ role: "staff", isDeleted: false }).lean();
     res.status(200).json({
       message: "Staff fetched successfully",
       count: staff.length,

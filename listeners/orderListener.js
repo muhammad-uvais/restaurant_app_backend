@@ -1,4 +1,3 @@
-console.log("✅ Order Listener Loaded");
 const orderEmitter = require('../events/orderEvents');
 const { sendEvent } = require('../utils/sseManager');
 

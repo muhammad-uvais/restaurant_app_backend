@@ -454,8 +454,7 @@ exports.updateOrder = async (req, res) => {
     const finalOrderType = updates.orderType || existingOrder.orderType;
 
     if (finalOrderType === "Delivery") {
-      deliveryCharges =
-        existingOrder.deliveryCharges ?? restaurant?.deliveryCharges ?? 0;
+      deliveryCharges = restaurant?.deliveryCharges || 0;
     }
 
     Object.assign(updatePayload, {

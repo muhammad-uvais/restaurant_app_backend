@@ -13,10 +13,16 @@ const migrateQR = async () => {
     await mongoose.connect(MONGO_URI);
     console.log("✅ Connected to DB");
 
+    // ✅ Fetch ALL admin users (no skipping)
     const users = await User.find({
       role: "admin",
-      qrCode: { $exists: true }, // old base64 QR
+      $or: [
+        { isDeleted: false },
+        { isDeleted: { $exists: false } }
+      ]
     });
+
+    console.log("🧠 Users Found:", users.map(u => u.email));
 
     const logoPath = path.join(__dirname, "../assets/logo.jpeg");
 
@@ -24,8 +30,15 @@ const migrateQR = async () => {
       try {
         console.log(`🔄 Processing: ${user.email}`);
 
+        // ✅ If missing data → just clean user QR
         if (!user.restaurantId || !user.domain) {
           console.log("⏭️ Skipping (missing data)");
+
+          await User.findByIdAndUpdate(
+            user._id,
+            { $unset: { qrCode: "" } }
+          );
+
           continue;
         }
 
@@ -33,13 +46,19 @@ const migrateQR = async () => {
 
         if (!restaurant) {
           console.log("⏭️ Restaurant not found");
+
+          await User.findByIdAndUpdate(
+            user._id,
+            { $unset: { qrCode: "" } }
+          );
+
           continue;
         }
 
-        // 🔥 Generate new QR (Cloudinary)
+        // 🔥 Generate QR (Cloudinary)
         const qrData = await generateAndUploadQR(user.domain, logoPath);
 
-        // ✅ Save in Restaurant
+        // ✅ Save ONLY in Restaurant
         restaurant.qrCode = {
           url: qrData.url,
           public_id: qrData.public_id,
@@ -47,15 +66,25 @@ const migrateQR = async () => {
 
         await restaurant.save();
 
-        // ❌ Remove old Base64 QR from User
-        user.qrCode = undefined;
-        await user.save();
+        // ❌ REMOVE from User (strict cleanup)
+        await User.findByIdAndUpdate(
+          user._id,
+          { $unset: { qrCode: "" } }
+        );
 
-        console.log(`✅ Migrated: ${user.email}`);
+        console.log(`✅ Migrated & Cleaned: ${user.email}`);
       } catch (err) {
-        console.error(`❌ Failed for ${user.email}`, err.message);
+        console.error(`❌ Failed for ${user.email}:`, err.message);
       }
     }
+
+    // 🔥 FINAL FORCE CLEANUP (VERY IMPORTANT)
+    await User.updateMany(
+      { qrCode: { $exists: true } },
+      { $unset: { qrCode: "" } }
+    );
+
+    console.log("🧹 All user QR codes removed (final cleanup)");
 
     console.log("🎉 Migration completed!");
     process.exit();
