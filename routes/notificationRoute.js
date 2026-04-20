@@ -4,9 +4,7 @@ const { addClient } = require('../utils/sseManager');
 const { authenticate } = require('../middleware/authMiddleware');
 
 router.get('/notifications', async (req, res) => {
-
   try {
-    // If token exists → authenticate admin
     if (req.query.token) {
       await new Promise((resolve, reject) => {
         authenticate(req, res, (err) => {
@@ -14,25 +12,24 @@ router.get('/notifications', async (req, res) => {
           resolve();
         });
       });
-    }
-
-    // Else → guest user (fingerPrint based)
-    else if (req.query.fingerPrint) {
-    }
-
-    // No identity provided
-    else {
+    } else if (req.query.fingerPrint) {
+      req.user = { role: "guest" };
+    } else {
       return res.status(400).json({
         message: "Provide token (admin) or fingerPrint (user)"
       });
     }
 
-    // 🔥 SSE headers
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
 
     res.flushHeaders();
+    res.write('\n');
+
+    req.on('close', () => {
+      console.log("🔌 SSE connection closed");
+    });
 
     addClient(req, res);
 
