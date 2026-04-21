@@ -96,7 +96,27 @@ exports.updateRestaurantDetails = async (req, res) => {
       return res.status(404).json({ message: "Restaurant not found." });
 
     const updateData = { ...req.body, updatedAt: new Date() };
+if (req.body.categories !== undefined) {
+  let categories = req.body.categories;
 
+  // Ensure array
+  if (!Array.isArray(categories)) {
+    categories = [categories];
+  }
+
+  // Convert to correct structure
+  updateData.categories = categories
+    .filter((cat) => cat && cat !== "")
+    .map((cat, index) => {
+      if (typeof cat === "string") {
+        return { name: cat, displayOrder: index };
+      }
+      return {
+        name: cat.name || "",
+        displayOrder: cat.displayOrder ?? index,
+      };
+    });
+}
     // Handle logo update
     if (req.file) {
       if (restaurant.logo?.public_id) {

@@ -172,10 +172,10 @@ exports.getAllOrders = async (req, res) => {
     }
 
     // Validate status
-    const allowedStatus = ["pending", "preparing", "completed", "cancelled"];
+    const allowedStatus = ["pending", "preparing", "ready", "completed", "cancelled"];
     if (!status || !allowedStatus.includes(status.toLowerCase())) {
       return res.status(400).json({
-        message: "Status must be pending, preparing completed, or cancelled",
+        message: "Status must be pending, preparing, ready, completed, or cancelled",
       });
     }
 
