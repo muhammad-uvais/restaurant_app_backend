@@ -171,7 +171,7 @@ exports.getAllOrders = async (req, res) => {
       ownerAdminId = createdBy;
     }
 
-    // ✅ Validate status
+    // Validate status
     const allowedStatus = ["pending", "preparing", "completed", "cancelled"];
     if (!status || !allowedStatus.includes(status.toLowerCase())) {
       return res.status(400).json({
@@ -179,7 +179,7 @@ exports.getAllOrders = async (req, res) => {
       });
     }
 
-    // 📅 Date range
+    // Date range
     const now = new Date();
     let fromDate;
 
@@ -203,9 +203,9 @@ exports.getAllOrders = async (req, res) => {
         fromDate = new Date(0);
     }
 
-    // ✅ FINAL FILTER (single source of truth)
+    // FINAL FILTER (single source of truth)
     const filter = {
-      user: ownerAdminId, // 🔥 admin id ALWAYS
+      user: ownerAdminId, // admin id ALWAYS
       status: status.toLowerCase(),
       createdAt: { $gte: fromDate, $lte: now },
     };
@@ -284,17 +284,17 @@ exports.updateOrder = async (req, res) => {
       return res.status(404).json({ message: "Order not found" });
     }
 
-    // 🔒 Prevent editing completed orders
-    if (existingOrder.status === "completed") {
+    // HARD LOCK
+    if (["completed", "cancelled"].includes(existingOrder.status)) {
       return res.status(400).json({
-        message: "Completed order cannot be modified",
+        message: `Cannot modify ${existingOrder.status} order`,
       });
     }
 
     const updatePayload = {};
 
     // =====================================
-    // ✅ ORDER TYPE VALIDATION
+    // VALIDATE ORDER TYPE
     // =====================================
     if (updates.orderType && !ALLOWED_ORDER_TYPES.includes(updates.orderType)) {
       return res.status(400).json({ message: "Invalid orderType" });
@@ -307,7 +307,7 @@ exports.updateOrder = async (req, res) => {
     });
 
     // =====================================
-    // ✅ ORDER TYPE RULES
+    // ORDER TYPE RULES
     // =====================================
     if (updates.orderType === "Delivery" && !updates.address) {
       return res.status(400).json({ message: "Address required for Delivery" });
@@ -323,27 +323,37 @@ exports.updateOrder = async (req, res) => {
     }
 
     // =====================================
-    // 🧠 IMPORTANT FIX: preserve items state
+    // BASE ITEMS (PLAIN)
     // =====================================
     let baseItems = existingOrder.items.map(i => i.toObject());
 
+    const existingItemMap = new Map(
+      existingOrder.items.map(i => [i.menuItemId.toString(), i])
+    );
+
     // =====================================
-    // ✅ REMOVE ITEMS
+    // REMOVE ITEMS
     // =====================================
     if (Array.isArray(updates.removeItemIds) && updates.removeItemIds.length) {
       baseItems = baseItems.filter(
-        (item) => !updates.removeItemIds.includes(item._id.toString())
+        item => !updates.removeItemIds.includes(item._id.toString())
       );
     }
 
     // =====================================
-    // ✅ ADD ITEMS
+    // ADD / REPLACE ITEMS
     // =====================================
     if (Array.isArray(updates.items)) {
+      const replaceMode = updates.replaceItems === true;
+
+      if (replaceMode) {
+        baseItems = []; // prevent duplicates
+      }
+
       const menuItems = await MenuItem.find({
         _id: { $in: updates.items.map(i => i.menuItemId) },
         deleted: false,
-        available: true
+        available: true,
       });
 
       const menuMap = new Map(menuItems.map(m => [m._id.toString(), m]));
@@ -390,6 +400,8 @@ exports.updateOrder = async (req, res) => {
           discountApplied = { type: null, value: 0 };
         }
 
+        const existing = existingItemMap.get(item.menuItemId);
+
         baseItems.push({
           menuItemId: menuItem._id,
           name: menuItem.name,
@@ -399,20 +411,19 @@ exports.updateOrder = async (req, res) => {
           discountedPrice,
           discountApplied,
           customizations: item.customizations || "",
-          isReady: false,
+          isReady: existing?.isReady || false, // preserve state
         });
       }
     }
 
     // =====================================
-    // 🚨 FIX: STATUS CONTROL (NO AUTO OVERRIDE IF MANUAL STATUS SENT)
+    // STATUS CONTROL
     // =====================================
     const manualStatus = updates.status;
 
     if (manualStatus) {
-      updatePayload.status = manualStatus; // 👈 ALWAYS WIN
+      updatePayload.status = manualStatus;
     } else {
-      // only derive if NO manual status provided
       const total = baseItems.length;
       const ready = baseItems.filter(i => i.isReady).length;
 
@@ -422,7 +433,24 @@ exports.updateOrder = async (req, res) => {
     }
 
     // =====================================
-    // 💰 TOTAL CALCULATION
+    // CRITICAL: SYNC ITEMS WITH STATUS
+    // =====================================
+    if (["ready", "completed"].includes(updatePayload.status)) {
+      baseItems = baseItems.map(item => ({
+        ...item,
+        isReady: true,
+      }));
+    }
+
+    if (updatePayload.status === "pending") {
+      baseItems = baseItems.map(item => ({
+        ...item,
+        isReady: false,
+      }));
+    }
+
+    // =====================================
+    // TOTAL CALCULATION
     // =====================================
     let subtotal = baseItems.reduce((sum, item) => {
       const price = Number(item.discountedPrice ?? item.price);
@@ -454,11 +482,10 @@ exports.updateOrder = async (req, res) => {
     });
 
     // =====================================
-    // 🚫 COMPLETED SAFETY
+    // FINAL SAFETY FOR COMPLETED
     // =====================================
     if (updatePayload.status === "completed") {
       const allReady = baseItems.every(i => i.isReady);
-
       if (!allReady) {
         return res.status(400).json({
           message: "Cannot complete order until all items are ready",
@@ -467,7 +494,7 @@ exports.updateOrder = async (req, res) => {
     }
 
     // =====================================
-    // UPDATE
+    // UPDATE DB
     // =====================================
     const updatedOrder = await Order.findByIdAndUpdate(
       orderId,
@@ -475,6 +502,9 @@ exports.updateOrder = async (req, res) => {
       { new: true }
     );
 
+    // =====================================
+    // EVENT
+    // =====================================
     orderEmitter.emit("orderUpdated", updatedOrder);
 
     res.status(200).json({
