@@ -13,81 +13,160 @@ const migrateQR = async () => {
     await mongoose.connect(MONGO_URI);
     console.log("✅ Connected to DB");
 
-    // ✅ Fetch ALL admin users (no skipping)
+
+    // -----------------------------
+    // 1) Patch legacy admins once
+    // -----------------------------
+
+    const patch1 = await User.updateMany(
+      {
+        role: "admin",
+        isDeleted: { $exists: false }
+      },
+      {
+        $set: { isDeleted: false }
+      }
+    );
+
+    const patch2 = await User.updateMany(
+      {
+        role: "admin",
+        deletedBy: { $exists: false }
+      },
+      {
+        $set: { deletedBy: null }
+      }
+    );
+
+    console.log(
+      "🛠 Patched admins:",
+      patch1.modifiedCount,
+      "isDeleted fields,",
+      patch2.modifiedCount,
+      "deletedBy fields"
+    );
+
+
+    // -----------------------------
+    // 2) Fetch active admins
+    // -----------------------------
+
     const users = await User.find({
       role: "admin",
-      $or: [
-        { isDeleted: false },
-        { isDeleted: { $exists: false } }
-      ]
+      isDeleted: false
     });
 
-    console.log("🧠 Users Found:", users.map(u => u.email));
+    console.log(
+      "🧠 Users Found:",
+      users.map(u => u.email)
+    );
 
-    const logoPath = path.join(__dirname, "../assets/logo.jpeg");
+    const logoPath = path.join(
+      __dirname,
+      "../assets/logo.jpeg"
+    );
+
+
+    // -----------------------------
+    // 3) Migrate each admin QR
+    // -----------------------------
 
     for (const user of users) {
       try {
-        console.log(`🔄 Processing: ${user.email}`);
 
-        // ✅ If missing data → just clean user QR
+        console.log(`🔄 Processing ${user.email}`);
+
         if (!user.restaurantId || !user.domain) {
-          console.log("⏭️ Skipping (missing data)");
 
-          await User.findByIdAndUpdate(
-            user._id,
-            { $unset: { qrCode: "" } }
+          console.log("⏭ Missing data, removing user qr only");
+
+          await User.updateOne(
+            { _id: user._id },
+            {
+              $unset: { qrCode: 1 }
+            }
           );
 
           continue;
         }
 
-        const restaurant = await Restaurant.findById(user.restaurantId);
+        const restaurant = await Restaurant.findById(
+          user.restaurantId
+        );
 
         if (!restaurant) {
-          console.log("⏭️ Restaurant not found");
 
-          await User.findByIdAndUpdate(
-            user._id,
-            { $unset: { qrCode: "" } }
+          console.log("⏭ Restaurant missing, removing user qr only");
+
+          await User.updateOne(
+            { _id: user._id },
+            {
+              $unset: { qrCode: 1 }
+            }
           );
 
           continue;
         }
 
-        // 🔥 Generate QR (Cloudinary)
-        const qrData = await generateAndUploadQR(user.domain, logoPath);
 
-        // ✅ Save ONLY in Restaurant
+        // Generate fresh QR
+        const qrData = await generateAndUploadQR(
+          user.domain,
+          logoPath
+        );
+
+
+        // Save in Restaurant only
         restaurant.qrCode = {
           url: qrData.url,
-          public_id: qrData.public_id,
+          public_id: qrData.public_id
         };
 
         await restaurant.save();
 
-        // ❌ REMOVE from User (strict cleanup)
-        await User.findByIdAndUpdate(
-          user._id,
-          { $unset: { qrCode: "" } }
+
+        // Remove old user qr
+        await User.updateOne(
+          { _id: user._id },
+          {
+            $unset: { qrCode: 1 }
+          }
         );
 
-        console.log(`✅ Migrated & Cleaned: ${user.email}`);
+        console.log(
+          `✅ Migrated & cleaned ${user.email}`
+        );
+
       } catch (err) {
-        console.error(`❌ Failed for ${user.email}:`, err.message);
+
+        console.error(
+          `❌ Failed for ${user.email}:`,
+          err.message
+        );
       }
     }
 
-    // 🔥 FINAL FORCE CLEANUP (VERY IMPORTANT)
-    await User.updateMany(
+
+    // -----------------------------
+    // 4) Force cleanup leftovers
+    // -----------------------------
+
+    const cleanup = await User.updateMany(
       { qrCode: { $exists: true } },
-      { $unset: { qrCode: "" } }
+      {
+        $unset: { qrCode: 1 }
+      }
     );
 
-    console.log("🧹 All user QR codes removed (final cleanup)");
+    console.log(
+      "🧹 Leftover QR removed from",
+      cleanup.modifiedCount,
+      "users"
+    );
 
-    console.log("🎉 Migration completed!");
+    console.log("🎉 Migration completed");
     process.exit();
+
   } catch (err) {
     console.error("❌ Script error:", err);
     process.exit(1);

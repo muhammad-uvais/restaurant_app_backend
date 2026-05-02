@@ -28,7 +28,6 @@ router.get('/notifications', async (req, res) => {
     res.write('\n');
 
     req.on('close', () => {
-      console.log("🔌 SSE connection closed");
     });
 
     addClient(req, res);
