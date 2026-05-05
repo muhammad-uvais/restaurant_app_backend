@@ -12,9 +12,26 @@ exports.createOrder = async (req, res) => {
   try {
     const { tenantAdminId } = req;
 
+    // ✅ VALIDATION
+    if (req.body.orderType === "Eat Here") {
+      if (!req.body.source || req.body.source.type === "NONE") {
+        return res.status(400).json({
+          message: "Table/Room selection is required for Eat Here orders",
+        });
+      }
+    }
+
+    // ✅ SANITIZE SOURCE
+    const source = {
+      section: req.body.source?.section || null,
+      number: req.body.source?.number || null,
+      type: req.body.source?.type || "NONE",
+    };
+
     const order = await createOrderService({
       tenantAdminId,
       ...req.body,
+      source, // ✅ pass new field
       createdBy: null,
       createdByRole: "user",
     });
@@ -51,10 +68,27 @@ exports.createOrderByAdminOrStaff = async (req, res) => {
       });
     }
 
+    // ✅ VALIDATION (NEW)
+    if (req.body.orderType === "Eat Here") {
+      if (!req.body.source || req.body.source.type === "NONE") {
+        return res.status(400).json({
+          message: "Table/Room selection is required for Eat Here orders",
+        });
+      }
+    }
+
+    // ✅ SANITIZE SOURCE (NEW)
+    const source = {
+      section: req.body.source?.section || null,
+      number: req.body.source?.number || null,
+      type: req.body.source?.type || "NONE",
+    };
+
     // ✅ Prepare payload
     const payload = {
       tenantAdminId,
       ...req.body,
+      source, // ✅ override with clean source
       createdBy: creatorId,
       createdByRole: role,
     };
@@ -165,10 +199,10 @@ exports.getAllOrders = async (req, res) => {
 };
 
 // Get Orders by fingerprint
-exports.getLatestOrderByFingerPrint = async (req, res) => {
+exports.getLatestOrdersByFingerPrint = async (req, res) => {
   try {
     const { fingerPrint } = req.query;
-    const { tenantAdminId } = req; // coming from tenant middleware
+    const { tenantAdminId } = req;
 
     if (!fingerPrint) {
       return res.status(400).json({ message: "fingerPrint is required" });
@@ -178,23 +212,24 @@ exports.getLatestOrderByFingerPrint = async (req, res) => {
       return res.status(400).json({ message: "Tenant not found" });
     }
 
-    // Fetch only the latest order for this fingerprint AND this restaurant
-    const latestOrder = await Order.findOne({
+    // 👇 get last 2 orders
+    const orders = await Order.find({
       fingerPrint,
       user: tenantAdminId,
     })
       .sort({ createdAt: -1 }) // newest first
+      .limit(2)
       .lean();
 
-    if (!latestOrder) {
-      return res
-        .status(404)
-        .json({ message: "No orders found for this fingerprint" });
+    if (!orders || orders.length === 0) {
+      return res.status(404).json({
+        message: "No orders found for this fingerprint",
+      });
     }
 
-    res.status(200).json({ order: latestOrder });
+    res.status(200).json({ orders });
   } catch (error) {
-    console.error("Get latest order by fingerprint error:", error);
+    console.error("Get orders by fingerprint error:", error);
     res.status(500).json({ message: "Server error" });
   }
 };
@@ -206,7 +241,7 @@ exports.updateOrder = async (req, res) => {
     const updates = req.body;
 
     const ALLOWED_ORDER_TYPES = ["Eat Here", "Take Away", "Delivery"];
-    const SIMPLE_FIELDS = ["tableId", "address", "orderType"];
+    const SIMPLE_FIELDS = ["address", "orderType"]; // ✅ removed tableId
 
     const existingOrder = await Order.findById(orderId);
     if (!existingOrder) {
@@ -236,19 +271,62 @@ exports.updateOrder = async (req, res) => {
     });
 
     // =====================================
+    // SOURCE UPDATE (NEW)
+    // =====================================
+    if (updates.source !== undefined) {
+      updatePayload.source = {
+        section:
+          updates.source.section !== undefined
+            ? updates.source.section
+            : existingOrder.source?.section,
+
+        number:
+          updates.source.number !== undefined
+            ? updates.source.number
+            : existingOrder.source?.number,
+
+        type:
+          updates.source.type !== undefined
+            ? updates.source.type
+            : existingOrder.source?.type || "NONE",
+      };
+    }
+
+    // =====================================
     // ORDER TYPE RULES
     // =====================================
     if (updates.orderType === "Delivery" && !updates.address) {
       return res.status(400).json({ message: "Address required for Delivery" });
     }
 
-    if (updates.orderType === "Eat Here" && !updates.tableId) {
-      return res.status(400).json({ message: "Table ID required for Eat Here" });
+    // ✅ SOURCE VALIDATION FOR EAT HERE
+    if (updates.orderType === "Eat Here") {
+      const sourceToCheck = updates.source || existingOrder.source;
+
+      if (!sourceToCheck || sourceToCheck.type === "NONE") {
+        return res.status(400).json({
+          message: "Table/Room required for Eat Here",
+        });
+      }
     }
 
+    // ✅ Handle Take Away
     if (updates.orderType === "Take Away") {
-      updatePayload.tableId = null;
+      updatePayload.source = {
+        section: null,
+        number: null,
+        type: "NONE",
+      };
       updatePayload.address = null;
+    }
+
+    // ✅ Handle Delivery
+    if (updates.orderType === "Delivery") {
+      updatePayload.source = {
+        section: null,
+        number: null,
+        type: "NONE",
+      };
     }
 
     // =====================================
@@ -276,7 +354,7 @@ exports.updateOrder = async (req, res) => {
       const replaceMode = updates.replaceItems === true;
 
       if (replaceMode) {
-        baseItems = []; // prevent duplicates
+        baseItems = [];
       }
 
       const menuItems = await MenuItem.find({
@@ -340,7 +418,7 @@ exports.updateOrder = async (req, res) => {
           discountedPrice,
           discountApplied,
           customizations: item.customizations || "",
-          isReady: existing?.isReady || false, // preserve state
+          isReady: existing?.isReady || false,
         });
       }
     }
@@ -362,7 +440,7 @@ exports.updateOrder = async (req, res) => {
     }
 
     // =====================================
-    // CRITICAL: SYNC ITEMS WITH STATUS
+    // SYNC ITEMS WITH STATUS
     // =====================================
     if (["ready", "completed"].includes(updatePayload.status)) {
       baseItems = baseItems.map(item => ({
@@ -411,7 +489,7 @@ exports.updateOrder = async (req, res) => {
     });
 
     // =====================================
-    // FINAL SAFETY FOR COMPLETED
+    // FINAL SAFETY
     // =====================================
     if (updatePayload.status === "completed") {
       const allReady = baseItems.every(i => i.isReady);
@@ -431,9 +509,6 @@ exports.updateOrder = async (req, res) => {
       { new: true }
     );
 
-    // =====================================
-    // EVENT
-    // =====================================
     orderEmitter.emit("orderUpdated", updatedOrder);
 
     res.status(200).json({

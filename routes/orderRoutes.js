@@ -11,7 +11,7 @@ router.post("/", getTenant, orderController.createOrder);
 // Create Order admin
 router.post("/protected", authenticate, authorizeRoles("admin", "staff"), orderController.createOrderByAdminOrStaff);
 // Get order client (public)
-router.get("/fingerprint", getTenant, orderController.getLatestOrderByFingerPrint);
+router.get("/fingerprint", getTenant, orderController.getLatestOrdersByFingerPrint);
 // Get order admin
 router.get("/", authenticate, authenticate, orderController.getAllOrders);
 // Update order

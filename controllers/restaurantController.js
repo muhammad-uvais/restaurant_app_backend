@@ -96,46 +96,91 @@ exports.updateRestaurantDetails = async (req, res) => {
       return res.status(404).json({ message: "Restaurant not found." });
 
     const updateData = { ...req.body, updatedAt: new Date() };
-if (req.body.categories !== undefined) {
-  let categories = req.body.categories;
 
-  // Ensure array
-  if (!Array.isArray(categories)) {
-    categories = [categories];
-  }
+    // ✅ ADD THIS BLOCK (Sections handling)
+    if (req.body.sections !== undefined) {
+      const sections = req.body.sections;
 
-  // Convert to correct structure
-  updateData.categories = categories
-    .filter((cat) => cat && cat !== "")
-    .map((cat, index) => {
-      if (typeof cat === "string") {
-        return { name: cat, displayOrder: index };
-      }
-      return {
-        name: cat.name || "",
-        displayOrder: cat.displayOrder ?? index,
+      updateData.sections = {
+        indoor: {
+          tables:
+            sections.indoor?.tables !== undefined
+              ? Number(sections.indoor.tables)
+              : restaurant.sections?.indoor?.tables || 0,
+        },
+        outdoor: {
+          tables:
+            sections.outdoor?.tables !== undefined
+              ? Number(sections.outdoor.tables)
+              : restaurant.sections?.outdoor?.tables || 0,
+        },
+        rooftop: {
+          tables:
+            sections.rooftop?.tables !== undefined
+              ? Number(sections.rooftop.tables)
+              : restaurant.sections?.rooftop?.tables || 0,
+        },
+        rooms: {
+          rooms:
+            sections.rooms?.rooms !== undefined
+              ? Number(sections.rooms.rooms)
+              : restaurant.sections?.rooms?.rooms || 0,
+        },
       };
-    });
-}
-    // Handle logo update
+
+      // Validation (same as before)
+      if (
+        updateData.sections.indoor.tables < 0 ||
+        updateData.sections.outdoor.tables < 0 ||
+        updateData.sections.rooftop.tables < 0 ||
+        updateData.sections.rooms.rooms < 0
+      ) {
+        return res.status(400).json({
+          message: "Section counts cannot be negative",
+        });
+      }
+    }
+
+    // Existing categories logic (UNCHANGED)
+    if (req.body.categories !== undefined) {
+      let categories = req.body.categories;
+
+      if (!Array.isArray(categories)) {
+        categories = [categories];
+      }
+
+      updateData.categories = categories
+        .filter((cat) => cat && cat !== "")
+        .map((cat, index) => {
+          if (typeof cat === "string") {
+            return { name: cat, displayOrder: index };
+          }
+          return {
+            name: cat.name || "",
+            displayOrder: cat.displayOrder ?? index,
+          };
+        });
+    }
+
+    // Existing logo logic (UNCHANGED)
     if (req.file) {
       if (restaurant.logo?.public_id) {
         await deleteFromCloudinary(restaurant.logo.public_id).catch(
-          console.warn,
+          console.warn
         );
       }
       const result = await uploadToCloudinary(req.file.buffer);
       updateData.logo = { url: result.secure_url, public_id: result.public_id };
     }
 
-    // Find removed categories BEFORE updating
+    // Existing category comparison logic (UNCHANGED)
     const oldCategories = restaurant.categories.map((cat) => cat.name);
     const newCategories = Array.isArray(updateData.categories)
       ? updateData.categories.map((cat) => cat.name)
       : oldCategories;
 
     const removedCategories = oldCategories.filter(
-      (cat) => !newCategories.includes(cat),
+      (cat) => !newCategories.includes(cat)
     );
 
     console.log("Old categories:", oldCategories);
@@ -146,17 +191,16 @@ if (req.body.categories !== undefined) {
     const updatedRestaurant = await Restaurant.findByIdAndUpdate(
       restaurant._id,
       updateData,
-      { new: true },
+      { new: true }
     );
 
-    // Soft delete menu items for removed categories (case insensitive)
+    // Existing menu item deletion logic (UNCHANGED)
     let extraMessage = "";
     if (removedCategories.length > 0) {
       const regexCategories = removedCategories.map(
-        (cat) => new RegExp(`^${cat}$`, "i"),
+        (cat) => new RegExp(`^${cat}$`, "i")
       );
 
-      // Debug — check what items will be deleted
       const itemsToDelete = await MenuItem.find({
         user: user._id,
         category: { $in: regexCategories },
@@ -166,10 +210,12 @@ if (req.body.categories !== undefined) {
 
       await MenuItem.updateMany(
         { user: user._id, category: { $in: regexCategories }, deleted: false },
-        { $set: { deleted: true } },
+        { $set: { deleted: true } }
       );
 
-      extraMessage = ` Categories [${removedCategories.join(", ")}] and their related menu items have also been deleted.`;
+      extraMessage = ` Categories [${removedCategories.join(
+        ", "
+      )}] and their related menu items have also been deleted.`;
     }
 
     res.status(200).json({
@@ -178,9 +224,10 @@ if (req.body.categories !== undefined) {
     });
   } catch (err) {
     console.error("Update restaurant error:", err);
-    res
-      .status(500)
-      .json({ message: "Internal server error.", error: err.message });
+    res.status(500).json({
+      message: "Internal server error.",
+      error: err.message,
+    });
   }
 };
 

@@ -39,8 +39,18 @@ const orderSchema = new mongoose.Schema({
     type: String,
   },
 
-  tableId: {
-    type: String,
+  source: {
+    section: {
+      type: String,
+    },
+    number: {
+      type: Number,
+    },
+    type: {
+      type: String,
+      enum: ["TABLE", "ROOM", "NONE"],
+      default: "NONE",
+    },
   },
 
   items: [
@@ -135,11 +145,8 @@ const orderSchema = new mongoose.Schema({
     type: Number,
     required: true,
   },
-
-  createdAt: {
-    type: Date,
-    default: Date.now,
-  },
-});
+},
+{ timestamps: true },
+);
 
 module.exports = mongoose.model("Order", orderSchema);

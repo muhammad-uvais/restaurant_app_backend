@@ -35,10 +35,23 @@ const restaurantSchema = new mongoose.Schema(
     categories: [
       {
         name: { type: String },
-        displayOrder: { type: Number, default: 100},
+        displayOrder: { type: Number, default: 100 },
       },
     ],
-    tableNumbers: { type: Number },
+    sections: {
+      indoor: {
+        tables: { type: Number, default: 0 },
+      },
+      outdoor: {
+        tables: { type: Number, default: 0 },
+      },
+      rooftop: {
+        tables: { type: Number, default: 0 },
+      },
+      rooms: {
+        rooms: { type: Number, default: 0 },
+      },
+    },
     phoneNumber: { type: Number },
     isOpen: { type: Boolean, default: true },
     deleted: { type: Boolean, default: false },
