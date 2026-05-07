@@ -240,16 +240,38 @@ exports.updateOrder = async (req, res) => {
     const { orderId } = req.params;
     const updates = req.body;
 
-    const ALLOWED_ORDER_TYPES = ["Eat Here", "Take Away", "Delivery"];
-    const SIMPLE_FIELDS = ["address", "orderType"]; // ✅ removed tableId
+    const ALLOWED_ORDER_TYPES = [
+      "Eat Here",
+      "Take Away",
+      "Delivery",
+    ];
+
+    const SIMPLE_FIELDS = ["address", "orderType"];
+
+    const makeItemKey = (item) => {
+      return `${item.menuItemId}_${item.variant || "default"}_${item.customizations || ""
+        }`;
+    };
+
+    // =====================================================
+    // FETCH ORDER
+    // =====================================================
 
     const existingOrder = await Order.findById(orderId);
+
     if (!existingOrder) {
-      return res.status(404).json({ message: "Order not found" });
+      return res.status(404).json({
+        message: "Order not found",
+      });
     }
 
+    // =====================================================
     // HARD LOCK
-    if (["completed", "cancelled"].includes(existingOrder.status)) {
+    // =====================================================
+
+    if (
+      ["completed", "cancelled"].includes(existingOrder.status)
+    ) {
       return res.status(400).json({
         message: `Cannot modify ${existingOrder.status} order`,
       });
@@ -257,11 +279,17 @@ exports.updateOrder = async (req, res) => {
 
     const updatePayload = {};
 
-    // =====================================
+    // =====================================================
     // VALIDATE ORDER TYPE
-    // =====================================
-    if (updates.orderType && !ALLOWED_ORDER_TYPES.includes(updates.orderType)) {
-      return res.status(400).json({ message: "Invalid orderType" });
+    // =====================================================
+
+    if (
+      updates.orderType &&
+      !ALLOWED_ORDER_TYPES.includes(updates.orderType)
+    ) {
+      return res.status(400).json({
+        message: "Invalid orderType",
+      });
     }
 
     SIMPLE_FIELDS.forEach((field) => {
@@ -270,9 +298,10 @@ exports.updateOrder = async (req, res) => {
       }
     });
 
-    // =====================================
-    // SOURCE UPDATE (NEW)
-    // =====================================
+    // =====================================================
+    // SOURCE UPDATE
+    // =====================================================
+
     if (updates.source !== undefined) {
       updatePayload.source = {
         section:
@@ -292,36 +321,53 @@ exports.updateOrder = async (req, res) => {
       };
     }
 
-    // =====================================
+    // =====================================================
     // ORDER TYPE RULES
-    // =====================================
-    if (updates.orderType === "Delivery" && !updates.address) {
-      return res.status(400).json({ message: "Address required for Delivery" });
+    // =====================================================
+
+    const finalOrderType =
+      updates.orderType || existingOrder.orderType;
+
+    if (
+      finalOrderType === "Delivery" &&
+      !(
+        updates.address ||
+        existingOrder.address ||
+        updatePayload.address
+      )
+    ) {
+      return res.status(400).json({
+        message: "Address required for Delivery",
+      });
     }
 
-    // ✅ SOURCE VALIDATION FOR EAT HERE
-    if (updates.orderType === "Eat Here") {
-      const sourceToCheck = updates.source || existingOrder.source;
+    if (finalOrderType === "Eat Here") {
+      const sourceToCheck =
+        updatePayload.source ||
+        updates.source ||
+        existingOrder.source;
 
-      if (!sourceToCheck || sourceToCheck.type === "NONE") {
+      if (
+        !sourceToCheck ||
+        sourceToCheck.type === "NONE"
+      ) {
         return res.status(400).json({
           message: "Table/Room required for Eat Here",
         });
       }
     }
 
-    // ✅ Handle Take Away
-    if (updates.orderType === "Take Away") {
+    if (finalOrderType === "Take Away") {
       updatePayload.source = {
         section: null,
         number: null,
         type: "NONE",
       };
+
       updatePayload.address = null;
     }
 
-    // ✅ Handle Delivery
-    if (updates.orderType === "Delivery") {
+    if (finalOrderType === "Delivery") {
       updatePayload.source = {
         section: null,
         number: null,
@@ -329,27 +375,84 @@ exports.updateOrder = async (req, res) => {
       };
     }
 
-    // =====================================
-    // BASE ITEMS (PLAIN)
-    // =====================================
-    let baseItems = existingOrder.items.map(i => i.toObject());
+    // =====================================================
+    // BASE ITEMS
+    // =====================================================
 
-    const existingItemMap = new Map(
-      existingOrder.items.map(i => [i.menuItemId.toString(), i])
+    let baseItems = existingOrder.items.map((item) =>
+      item.toObject()
     );
 
-    // =====================================
+    // =====================================================
     // REMOVE ITEMS
-    // =====================================
-    if (Array.isArray(updates.removeItemIds) && updates.removeItemIds.length) {
+    // =====================================================
+
+    if (
+      Array.isArray(updates.removeItemIds) &&
+      updates.removeItemIds.length
+    ) {
       baseItems = baseItems.filter(
-        item => !updates.removeItemIds.includes(item._id.toString())
+        (item) =>
+          !updates.removeItemIds.includes(item._id.toString())
       );
     }
 
-    // =====================================
+    // =====================================================
+    // UPDATE ITEM QUANTITIES
+    // =====================================================
+
+    if (
+      Array.isArray(updates.updateQuantities) &&
+      updates.updateQuantities.length
+    ) {
+      for (const qtyUpdate of updates.updateQuantities) {
+        const itemIndex = baseItems.findIndex(
+          (item) =>
+            item._id.toString() === qtyUpdate.itemId
+        );
+
+        if (itemIndex === -1) {
+          return res.status(400).json({
+            message: `Item not found: ${qtyUpdate.itemId}`,
+          });
+        }
+
+        const newQuantity = Number(qtyUpdate.quantity);
+
+        // =====================================================
+        // VALIDATION
+        // =====================================================
+
+        if (
+          isNaN(newQuantity) ||
+          !Number.isInteger(newQuantity)
+        ) {
+          return res.status(400).json({
+            message: "Quantity must be a valid integer",
+          });
+        }
+
+        // =====================================================
+        // REMOVE ITEM IF QUANTITY <= 0
+        // =====================================================
+
+        if (newQuantity <= 0) {
+          baseItems.splice(itemIndex, 1);
+          continue;
+        }
+
+        // =====================================================
+        // UPDATE QUANTITY
+        // =====================================================
+
+        baseItems[itemIndex].quantity = newQuantity;
+      }
+    }
+
+    // =====================================================
     // ADD / REPLACE ITEMS
-    // =====================================
+    // =====================================================
+
     if (Array.isArray(updates.items)) {
       const replaceMode = updates.replaceItems === true;
 
@@ -358,15 +461,21 @@ exports.updateOrder = async (req, res) => {
       }
 
       const menuItems = await MenuItem.find({
-        _id: { $in: updates.items.map(i => i.menuItemId) },
+        _id: {
+          $in: updates.items.map((i) => i.menuItemId),
+        },
         deleted: false,
         available: true,
       });
 
-      const menuMap = new Map(menuItems.map(m => [m._id.toString(), m]));
+      const menuMap = new Map(
+        menuItems.map((m) => [m._id.toString(), m])
+      );
 
       for (const item of updates.items) {
-        const menuItem = menuMap.get(item.menuItemId);
+        const menuItem = menuMap.get(
+          item.menuItemId.toString()
+        );
 
         if (!menuItem) {
           return res.status(400).json({
@@ -376,18 +485,40 @@ exports.updateOrder = async (req, res) => {
 
         let price = 0;
         let discountedPrice = 0;
-        let discountApplied = null;
+        let discountApplied = {
+          type: null,
+          value: 0,
+        };
+
         let variant = null;
+
+        // =====================================================
+        // SINGLE PRICING
+        // =====================================================
 
         if (menuItem.pricingType === "single") {
           price = Number(menuItem.price);
-          discountedPrice = price;
-          discountApplied = menuItem.discount || { type: null, value: 0 };
+
+          discountApplied = menuItem.discount || {
+            type: null,
+            value: 0,
+          };
+
+          discountedPrice = calculateDiscountedPrice(
+            price,
+            discountApplied
+          );
         }
+
+        // =====================================================
+        // VARIANT PRICING
+        // =====================================================
 
         if (menuItem.pricingType === "variant") {
           const key = item.variant?.toLowerCase();
-          const variantData = menuItem.variantRates?.[key];
+
+          const variantData =
+            menuItem.variantRates?.[key];
 
           if (!variantData) {
             return res.status(400).json({
@@ -396,88 +527,169 @@ exports.updateOrder = async (req, res) => {
           }
 
           price = Number(variantData.price);
-          discountedPrice = price;
-          discountApplied = variantData.discount || { type: null, value: 0 };
+
+          discountApplied =
+            variantData.discount || {
+              type: null,
+              value: 0,
+            };
+
+          discountedPrice = calculateDiscountedPrice(
+            price,
+            discountApplied
+          );
+
           variant = key;
         }
 
+        // =====================================================
+        // COMBO PRICING
+        // =====================================================
+
         if (menuItem.pricingType === "combo") {
           price = Number(menuItem.comboPrice);
-          discountedPrice = price;
-          discountApplied = { type: null, value: 0 };
+
+          discountApplied =
+            menuItem.discount || {
+              type: null,
+              value: 0,
+            };
+
+          discountedPrice = calculateDiscountedPrice(
+            price,
+            discountApplied
+          );
         }
 
-        const existing = existingItemMap.get(item.menuItemId);
-
-        baseItems.push({
+        const normalizedItem = {
           menuItemId: menuItem._id,
           name: menuItem.name,
           variant,
           quantity: Number(item.quantity || 1),
-          price,
-          discountedPrice,
+          price: Number(price),
+          discountedPrice: Number(discountedPrice),
           discountApplied,
-          customizations: item.customizations || "",
-          isReady: existing?.isReady || false,
-        });
+          customizations:
+            item.customizations || "",
+          isReady: false,
+        };
+
+        const itemKey = makeItemKey(normalizedItem);
+
+        const existingIndex = baseItems.findIndex(
+          (i) =>
+            makeItemKey({
+              menuItemId: i.menuItemId,
+              variant: i.variant,
+              customizations: i.customizations,
+            }) === itemKey
+        );
+
+        // =====================================================
+        // MERGE EXISTING ITEMS
+        // =====================================================
+
+        if (existingIndex > -1) {
+          baseItems[existingIndex].quantity +=
+            normalizedItem.quantity;
+        } else {
+          baseItems.push(normalizedItem);
+        }
       }
     }
 
-    // =====================================
+    // =====================================================
     // STATUS CONTROL
-    // =====================================
+    // =====================================================
+
     const manualStatus = updates.status;
 
     if (manualStatus) {
       updatePayload.status = manualStatus;
     } else {
-      const total = baseItems.length;
-      const ready = baseItems.filter(i => i.isReady).length;
+      const totalItems = baseItems.length;
 
-      if (ready === 0) updatePayload.status = "pending";
-      else if (ready < total) updatePayload.status = "preparing";
-      else updatePayload.status = "ready";
+      const readyItems = baseItems.filter(
+        (i) => i.isReady
+      ).length;
+
+      if (readyItems === 0) {
+        updatePayload.status = "pending";
+      } else if (readyItems < totalItems) {
+        updatePayload.status = "preparing";
+      } else {
+        updatePayload.status = "ready";
+      }
     }
 
-    // =====================================
-    // SYNC ITEMS WITH STATUS
-    // =====================================
-    if (["ready", "completed"].includes(updatePayload.status)) {
-      baseItems = baseItems.map(item => ({
+    // =====================================================
+    // STATUS ↔ ITEMS SYNC
+    // =====================================================
+
+    if (
+      ["ready", "completed"].includes(
+        updatePayload.status
+      )
+    ) {
+      baseItems = baseItems.map((item) => ({
         ...item,
         isReady: true,
       }));
     }
 
     if (updatePayload.status === "pending") {
-      baseItems = baseItems.map(item => ({
+      baseItems = baseItems.map((item) => ({
         ...item,
         isReady: false,
       }));
     }
 
-    // =====================================
-    // TOTAL CALCULATION
-    // =====================================
-    let subtotal = baseItems.reduce((sum, item) => {
-      const price = Number(item.discountedPrice ?? item.price);
-      return sum + price * Number(item.quantity || 1);
-    }, 0);
+    // =====================================================
+    // TOTAL CALCULATIONS
+    // =====================================================
+
+    const subtotal = Number(
+      baseItems
+        .reduce((sum, item) => {
+          const itemPrice = Number(
+            item.discountedPrice ?? item.price ?? 0
+          );
+
+          const quantity = Number(item.quantity || 1);
+
+          return sum + itemPrice * quantity;
+        }, 0)
+        .toFixed(2)
+    );
 
     const restaurant = await Restaurant.findOne({
       user: existingOrder.user,
       deleted: false,
     });
 
-    const gstRate = restaurant?.gstEnabled ? restaurant.gstRate : 0;
-    const gstAmount = (subtotal * gstRate) / 100;
+    const gstRate = restaurant?.gstEnabled
+      ? Number(restaurant.gstRate || 0)
+      : 0;
+
+    const gstAmount = Number(
+      ((subtotal * gstRate) / 100).toFixed(2)
+    );
 
     let deliveryCharges = 0;
-    const finalOrderType = updates.orderType || existingOrder.orderType;
 
     if (finalOrderType === "Delivery") {
-      deliveryCharges = restaurant?.deliveryCharges || 0;
+      deliveryCharges = Number(
+        restaurant?.deliveryCharges || 0
+      );
     }
+
+    const totalAmount = Number(
+      (
+        subtotal +
+        gstAmount +
+        deliveryCharges
+      ).toFixed(2)
+    );
 
     Object.assign(updatePayload, {
       items: baseItems,
@@ -485,40 +697,57 @@ exports.updateOrder = async (req, res) => {
       gstRate,
       gstAmount,
       deliveryCharges,
-      totalAmount: subtotal + gstAmount + deliveryCharges,
+      totalAmount,
     });
 
-    // =====================================
+    // =====================================================
     // FINAL SAFETY
-    // =====================================
+    // =====================================================
+
     if (updatePayload.status === "completed") {
-      const allReady = baseItems.every(i => i.isReady);
+      const allReady = baseItems.every(
+        (i) => i.isReady
+      );
+
       if (!allReady) {
         return res.status(400).json({
-          message: "Cannot complete order until all items are ready",
+          message:
+            "Cannot complete order until all items are ready",
         });
       }
     }
 
-    // =====================================
+    // =====================================================
     // UPDATE DB
-    // =====================================
-    const updatedOrder = await Order.findByIdAndUpdate(
-      orderId,
-      { $set: updatePayload },
-      { new: true }
+    // =====================================================
+
+    const updatedOrder =
+      await Order.findByIdAndUpdate(
+        orderId,
+        {
+          $set: updatePayload,
+        },
+        {
+          new: true,
+        }
+      );
+
+    orderEmitter.emit(
+      "orderUpdated",
+      updatedOrder
     );
 
-    orderEmitter.emit("orderUpdated", updatedOrder);
-
-    res.status(200).json({
+    return res.status(200).json({
       message: "Order updated successfully",
       order: updatedOrder,
     });
-
   } catch (error) {
-    console.error("Error updating order:", error);
-    res.status(500).json({
+    console.error(
+      "Error updating order:",
+      error
+    );
+
+    return res.status(500).json({
       message: "Server error",
       error: error.message,
     });
