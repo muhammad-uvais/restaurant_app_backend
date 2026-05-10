@@ -393,7 +393,9 @@ exports.updateOrder = async (req, res) => {
     ) {
       baseItems = baseItems.filter(
         (item) =>
-          !updates.removeItemIds.includes(item._id.toString())
+          !updates.removeItemIds.includes(
+            item._id.toString()
+          )
       );
     }
 
@@ -417,7 +419,9 @@ exports.updateOrder = async (req, res) => {
           });
         }
 
-        const newQuantity = Number(qtyUpdate.quantity);
+        const newQuantity = Number(
+          qtyUpdate.quantity
+        );
 
         // =====================================================
         // VALIDATION
@@ -428,7 +432,8 @@ exports.updateOrder = async (req, res) => {
           !Number.isInteger(newQuantity)
         ) {
           return res.status(400).json({
-            message: "Quantity must be a valid integer",
+            message:
+              "Quantity must be a valid integer",
           });
         }
 
@@ -445,31 +450,34 @@ exports.updateOrder = async (req, res) => {
         // UPDATE QUANTITY
         // =====================================================
 
-        baseItems[itemIndex].quantity = newQuantity;
+        baseItems[itemIndex].quantity =
+          newQuantity;
       }
     }
 
     // =====================================================
-    // ADD / REPLACE ITEMS
+    // ADD NEW ITEMS ONLY
     // =====================================================
 
-    if (Array.isArray(updates.items)) {
-      const replaceMode = updates.replaceItems === true;
-
-      if (replaceMode) {
-        baseItems = [];
-      }
-
+    if (
+      Array.isArray(updates.items) &&
+      updates.items.length
+    ) {
       const menuItems = await MenuItem.find({
         _id: {
-          $in: updates.items.map((i) => i.menuItemId),
+          $in: updates.items.map(
+            (i) => i.menuItemId
+          ),
         },
         deleted: false,
         available: true,
       });
 
       const menuMap = new Map(
-        menuItems.map((m) => [m._id.toString(), m])
+        menuItems.map((m) => [
+          m._id.toString(),
+          m,
+        ])
       );
 
       for (const item of updates.items) {
@@ -485,6 +493,7 @@ exports.updateOrder = async (req, res) => {
 
         let price = 0;
         let discountedPrice = 0;
+
         let discountApplied = {
           type: null,
           value: 0,
@@ -499,15 +508,17 @@ exports.updateOrder = async (req, res) => {
         if (menuItem.pricingType === "single") {
           price = Number(menuItem.price);
 
-          discountApplied = menuItem.discount || {
-            type: null,
-            value: 0,
-          };
+          discountApplied =
+            menuItem.discount || {
+              type: null,
+              value: 0,
+            };
 
-          discountedPrice = calculateDiscountedPrice(
-            price,
-            discountApplied
-          );
+          discountedPrice =
+            calculateDiscountedPrice(
+              price,
+              discountApplied
+            );
         }
 
         // =====================================================
@@ -515,7 +526,8 @@ exports.updateOrder = async (req, res) => {
         // =====================================================
 
         if (menuItem.pricingType === "variant") {
-          const key = item.variant?.toLowerCase();
+          const key =
+            item.variant?.toLowerCase();
 
           const variantData =
             menuItem.variantRates?.[key];
@@ -534,10 +546,11 @@ exports.updateOrder = async (req, res) => {
               value: 0,
             };
 
-          discountedPrice = calculateDiscountedPrice(
-            price,
-            discountApplied
-          );
+          discountedPrice =
+            calculateDiscountedPrice(
+              price,
+              discountApplied
+            );
 
           variant = key;
         }
@@ -547,7 +560,9 @@ exports.updateOrder = async (req, res) => {
         // =====================================================
 
         if (menuItem.pricingType === "combo") {
-          price = Number(menuItem.comboPrice);
+          price = Number(
+            menuItem.comboPrice
+          );
 
           discountApplied =
             menuItem.discount || {
@@ -555,47 +570,74 @@ exports.updateOrder = async (req, res) => {
               value: 0,
             };
 
-          discountedPrice = calculateDiscountedPrice(
-            price,
-            discountApplied
-          );
+          discountedPrice =
+            calculateDiscountedPrice(
+              price,
+              discountApplied
+            );
         }
 
         const normalizedItem = {
           menuItemId: menuItem._id,
           name: menuItem.name,
           variant,
-          quantity: Number(item.quantity || 1),
+          quantity: Number(
+            item.quantity || 1
+          ),
           price: Number(price),
-          discountedPrice: Number(discountedPrice),
+          discountedPrice: Number(
+            discountedPrice
+          ),
           discountApplied,
           customizations:
             item.customizations || "",
+
+          // IMPORTANT:
+          // New items always start unready
           isReady: false,
         };
 
-        const itemKey = makeItemKey(normalizedItem);
+        const itemKey =
+          makeItemKey(normalizedItem);
 
-        const existingIndex = baseItems.findIndex(
-          (i) =>
-            makeItemKey({
-              menuItemId: i.menuItemId,
-              variant: i.variant,
-              customizations: i.customizations,
-            }) === itemKey
-        );
+        const existingIndex =
+          baseItems.findIndex(
+            (i) =>
+              makeItemKey({
+                menuItemId: i.menuItemId,
+                variant: i.variant,
+                customizations:
+                  i.customizations,
+              }) === itemKey
+          );
 
         // =====================================================
         // MERGE EXISTING ITEMS
         // =====================================================
 
         if (existingIndex > -1) {
-          baseItems[existingIndex].quantity +=
+          baseItems[
+            existingIndex
+          ].quantity +=
             normalizedItem.quantity;
+
+          // IMPORTANT:
+          // Preserve existing isReady
         } else {
           baseItems.push(normalizedItem);
         }
       }
+    }
+
+    // =====================================================
+    // PREVENT EMPTY ORDER
+    // =====================================================
+
+    if (!baseItems.length) {
+      return res.status(400).json({
+        message:
+          "Order must contain at least 1 item",
+      });
     }
 
     // =====================================================
@@ -637,7 +679,9 @@ exports.updateOrder = async (req, res) => {
       }));
     }
 
-    if (updatePayload.status === "pending") {
+    if (
+      updatePayload.status === "pending"
+    ) {
       baseItems = baseItems.map((item) => ({
         ...item,
         isReady: false,
@@ -652,27 +696,40 @@ exports.updateOrder = async (req, res) => {
       baseItems
         .reduce((sum, item) => {
           const itemPrice = Number(
-            item.discountedPrice ?? item.price ?? 0
+            item.discountedPrice ??
+            item.price ??
+            0
           );
 
-          const quantity = Number(item.quantity || 1);
+          const quantity = Number(
+            item.quantity || 1
+          );
 
-          return sum + itemPrice * quantity;
+          return (
+            sum + itemPrice * quantity
+          );
         }, 0)
         .toFixed(2)
     );
 
-    const restaurant = await Restaurant.findOne({
-      user: existingOrder.user,
-      deleted: false,
-    });
+    const restaurant =
+      await Restaurant.findOne({
+        user: existingOrder.user,
+        deleted: false,
+      });
 
-    const gstRate = restaurant?.gstEnabled
-      ? Number(restaurant.gstRate || 0)
-      : 0;
+    const gstRate =
+      restaurant?.gstEnabled
+        ? Number(
+          restaurant.gstRate || 0
+        )
+        : 0;
 
     const gstAmount = Number(
-      ((subtotal * gstRate) / 100).toFixed(2)
+      (
+        (subtotal * gstRate) /
+        100
+      ).toFixed(2)
     );
 
     let deliveryCharges = 0;
@@ -704,7 +761,10 @@ exports.updateOrder = async (req, res) => {
     // FINAL SAFETY
     // =====================================================
 
-    if (updatePayload.status === "completed") {
+    if (
+      updatePayload.status ===
+      "completed"
+    ) {
       const allReady = baseItems.every(
         (i) => i.isReady
       );
