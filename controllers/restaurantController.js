@@ -1,9 +1,12 @@
 const Restaurant = require("../models/Restaurant");
-const {
-  uploadToCloudinary,
-  deleteFromCloudinary,
-} = require("../utils/cloudinary");
 const MenuItem = require("../models/MenuItem");
+const User = require("../models/User")
+const Order = require("../models/Order")
+const mongoose = require("mongoose");
+const { uploadToCloudinary, deleteFromCloudinary } = require("../utils/cloudinary");
+const generateAndUploadQR = require("../utils/generateQR")
+const path = require("path");
+const logoPath = path.join(__dirname, "../assets/logo.jpeg");
 
 // Retrieve restaurant details for clients based on domain (tenant middleware)
 exports.getRestaurantDetails = async (req, res) => {
@@ -384,5 +387,371 @@ exports.reorderCategories = async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+};
+
+exports.addUnits = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { sectionName, type, count, units } = req.body;
+
+    if (!sectionName || !type) {
+      return res.status(400).json({
+        message: "sectionName and type are required",
+      });
+    }
+
+    if (!["TABLE", "ROOM"].includes(type)) {
+      return res.status(400).json({
+        message: "Invalid type (TABLE or ROOM only)",
+      });
+    }
+
+    const restaurant = await Restaurant.findOne({
+      user: userId,
+      deleted: false,
+    });
+
+    if (!restaurant) {
+      return res.status(404).json({
+        message: "Restaurant not found for this user",
+      });
+    }
+
+    if (!restaurant.domain) {
+      return res.status(400).json({
+        message: "Restaurant domain not configured",
+      });
+    }
+
+    const domain = restaurant.domain;
+
+    let section = restaurant.sections.find(s => s.name === sectionName);
+
+    if (!section) {
+      restaurant.sections.push({ name: sectionName, units: [] });
+      section = restaurant.sections[restaurant.sections.length - 1];
+    }
+
+    const existingNames = new Set(section.units.map(u => u.name));
+    const newUnits = [];
+
+    // =====================================================
+    // CUSTOM UNITS MODE
+    // =====================================================
+    if (Array.isArray(units) && units.length > 0) {
+      for (const u of units) {
+        if (!u.name) {
+          return res.status(400).json({
+            message: "Each unit must have a name",
+          });
+        }
+
+        if (existingNames.has(u.name)) {
+          return res.status(400).json({
+            message: `Duplicate unit name: ${u.name}`,
+          });
+        }
+
+        const unitId = new mongoose.Types.ObjectId();
+
+        const qr = await generateAndUploadQR(
+          `${domain}/order?unitId=${unitId}`,
+          logoPath
+        );
+
+        newUnits.push({
+          _id: unitId,
+          type,
+          name: u.name,
+          status: "AVAILABLE",
+          currentOrderId: null,
+
+          roomCategory:
+            type === "ROOM" ? u.roomCategory || null : undefined,
+
+          // ✅ FIXED: occupancy always exists
+          occupancy: {
+            checkInTime: null,
+            checkOutTime: null,
+          },
+
+          qrCode: {
+            url: qr.url,
+            code: qr.public_id,
+          },
+
+          isActive: true,
+        });
+
+        existingNames.add(u.name);
+      }
+    }
+
+    // =====================================================
+    // BULK COUNT MODE
+    // =====================================================
+    else if (count && count > 0) {
+      const existingUnits = section.units.filter(u => u.type === type);
+      let startIndex = existingUnits.length + 1;
+
+      for (let i = 0; i < count; i++) {
+        const unitId = new mongoose.Types.ObjectId();
+
+        const qr = await generateAndUploadQR(
+          `${domain}/order?unitId=${unitId}`,
+          logoPath
+        );
+
+        let name;
+
+        if (type === "TABLE") {
+          name = `T${startIndex + i}`;
+        } else {
+          name = `${100 + startIndex + i}`;
+        }
+
+        if (existingNames.has(name)) continue;
+
+        newUnits.push({
+          _id: unitId,
+          type,
+          name,
+          status: "AVAILABLE",
+          currentOrderId: null,
+
+          // ✅ FIXED: occupancy added here too
+          occupancy: {
+            checkInTime: null,
+            checkOutTime: null,
+          },
+
+          qrCode: {
+            url: qr.url,
+            code: qr.public_id,
+          },
+
+          isActive: true,
+        });
+
+        existingNames.add(name);
+      }
+    }
+
+    else {
+      return res.status(400).json({
+        message: "Provide either 'count' or 'units[]'",
+      });
+    }
+
+    section.units.push(...newUnits);
+    await restaurant.save();
+
+    return res.status(201).json({
+      message: `${newUnits.length} ${type}(s) added successfully`,
+      units: newUnits,
+    });
+
+  } catch (error) {
+    console.error("Add units error:", error);
+    return res.status(500).json({
+      message: error.message,
+    });
+  }
+};
+
+exports.bookRoom = async (req, res) => {
+  try {
+    const userId = req.user._id;
+
+    const {
+      unitId,
+      customerName,
+      customerPhone,
+    } = req.body;
+
+    if (!unitId) {
+      return res.status(400).json({
+        message: "unitId is required",
+      });
+    }
+
+    const restaurant = await Restaurant.findOne({
+      user: userId,
+      deleted: false,
+    });
+
+    if (!restaurant) {
+      return res.status(404).json({
+        message: "Restaurant not found",
+      });
+    }
+
+    let resolvedUnit = null;
+    let resolvedSection = null;
+
+    // 🔍 FIND ROOM
+    for (const section of restaurant.sections) {
+      const unit = section.units.id(unitId);
+
+      if (unit && unit.type === "ROOM") {
+        resolvedUnit = unit;
+        resolvedSection = section.name;
+        break;
+      }
+    }
+
+    if (!resolvedUnit) {
+      return res.status(404).json({
+        message: "Room not found",
+      });
+    }
+
+    // ❌ Already booked
+    if (resolvedUnit.status === "OCCUPIED") {
+      return res.status(400).json({
+        message: "Room already booked",
+      });
+    }
+
+    // ❌ ROOM CONFIG REQUIRED
+    if (!resolvedUnit.roomCategory) {
+      return res.status(400).json({
+        message: "Room category not configured",
+      });
+    }
+
+    const pricingModel =
+      resolvedUnit.roomCategory.pricingModel || "PER_NIGHT";
+
+    const pricePerNight =
+      resolvedUnit.roomCategory.priceConfig?.pricePerNight || 0;
+
+    // 🔥 CREATE ORDER (ROOM BOOKING)
+    const order = await Order.create({
+      user: userId,
+      createdBy: userId,
+      createdByRole: "admin",
+
+      fingerPrint: null, // will be set on first food order
+
+      customerName,
+      customerPhone,
+
+      items: [],
+
+      subtotal: 0,
+      gstRate: 0,
+      gstAmount: 0,
+      deliveryCharges: 0,
+      totalAmount: 0,
+
+      orderType: "Eat Here",
+
+      source: {
+        restaurantId: restaurant._id,
+        unitId: resolvedUnit._id,
+        sectionName: resolvedSection,
+        unitName: resolvedUnit.name,
+        type: "ROOM",
+      },
+
+      // ✅ PERFECT ALIGNMENT WITH RESTAURANT SCHEMA
+      stay: {
+        enabled: true,
+        checkInTime: new Date(),
+        checkOutTime: null,
+
+        category: {
+          name: resolvedUnit.roomCategory.name,
+        },
+
+        pricing: {
+          model: pricingModel,
+          rate: pricePerNight,
+        },
+
+        duration: {
+          nights: 0,
+        },
+
+        roomCharge: 0,
+      },
+    });
+
+    // ✅ MARK ROOM OCCUPIED
+    resolvedUnit.status = "OCCUPIED";
+    resolvedUnit.currentOrderId = order._id;
+
+    // optional but useful
+    resolvedUnit.occupancy = {
+      checkInTime: new Date(),
+      checkOutTime: null,
+    };
+
+    await restaurant.save();
+
+    return res.status(201).json({
+      message: "Room booked successfully",
+      order,
+    });
+
+  } catch (error) {
+    console.error("Book room error:", error);
+    return res.status(500).json({
+      message: error.message,
+    });
+  }
+};
+
+exports.getLiveUnitStatus = async (req, res) => {
+  try {
+    const userId = req.user._id;
+
+    const restaurant = await Restaurant.findOne({
+      user: userId,
+      deleted: false,
+    }).lean();
+
+    if (!restaurant) {
+      return res.status(404).json({
+        message: "Restaurant not found",
+      });
+    }
+
+    const sections = restaurant.sections.map((section) => ({
+      sectionId: section._id,
+      name: section.name,
+
+      units: section.units.map((unit) => ({
+        unitId: unit._id,
+        name: unit.name,
+        type: unit.type,
+        status: unit.status,
+        currentOrderId: unit.currentOrderId || null,
+        occupiedSince: unit.occupancy?.checkInTime || null,
+
+        roomCategory:
+          unit.type === "ROOM"
+            ? {
+                name: unit.roomCategory?.name || null,
+                pricingModel: unit.roomCategory?.pricingModel || null,
+                pricePerNight:
+                  unit.roomCategory?.priceConfig?.pricePerNight || null,
+              }
+            : null,
+      })),
+    }));
+
+    return res.status(200).json({
+      message: "Live unit status fetched successfully",
+      sections,
+    });
+
+  } catch (error) {
+    console.error("Live unit error:", error);
+    return res.status(500).json({
+      message: error.message,
+    });
   }
 };

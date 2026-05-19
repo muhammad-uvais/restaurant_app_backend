@@ -25,4 +25,11 @@ router.delete("/:orderId", authenticate, authorizeRoles("admin", "staff"), order
 // Update order status
 // router.patch("/:orderId", orderController.updateOrderStatus);
 
+// Unified checkout (TABLE + ROOM)
+router.post(
+  "/checkout/:orderId",
+  authenticate,
+  orderController.checkoutOrder
+);
+
 module.exports = router;

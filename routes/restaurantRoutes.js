@@ -74,4 +74,27 @@ router.post(
   restaurantController.reorderCategories
 );
 
+// Define sections , create units (table/room) (admin only)
+router.post(
+  "/units",
+  authenticate,
+  authorizeRoles("admin"),
+  restaurantController.addUnits
+);
+
+// Book Room (admin only)
+router.post(
+  "/book",
+  authenticate,
+  authorizeRoles("admin"),
+  restaurantController.bookRoom
+);
+
+// LIVE DASHBOARD
+router.get(
+  "/units/live-status",
+  authenticate,
+  restaurantController.getLiveUnitStatus
+);
+
 module.exports = router;

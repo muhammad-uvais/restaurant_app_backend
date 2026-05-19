@@ -3,7 +3,6 @@ const bcrypt = require("bcryptjs");
 const User = require("../models/User");
 const Restaurant = require("../models/Restaurant");
 const generateToken = require("../utils/generateToken");
-const generateAndUploadQR = require("../utils/generateQR");
 
 // Register User
 exports.registerUser = async (req, res) => {
@@ -34,11 +33,6 @@ exports.registerUser = async (req, res) => {
           });
         }
 
-        const path = require("path");
-        const logoPath = path.join(__dirname, "../assets/logo.jpeg");
-
-        const qrCode = await generateAndUploadQR(domain, logoPath);
-
         const createdBy = creator ? creator._id : null;
 
         const admin = await User.create({
@@ -52,11 +46,7 @@ exports.registerUser = async (req, res) => {
           user: admin._id,
           name,
           restaurantName,
-          domain,
-          qrCode: {
-            url: qrCode.url,
-            public_id: qrCode.public_id,
-          },
+          domain
         });
 
         admin.restaurantId = restaurant._id;
@@ -77,7 +67,6 @@ exports.registerUser = async (req, res) => {
           restaurant: {
             _id: restaurant._id,
             restaurantName: restaurant.restaurantName,
-            qrCode: restaurant.qrCode,
           },
           token,
         });
