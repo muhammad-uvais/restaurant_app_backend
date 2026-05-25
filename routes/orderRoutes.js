@@ -26,6 +26,9 @@ router.post("/protected", authenticate, adminOrStaff, orderController.createOrde
 // Retrieve all orders across the system
 router.get("/", authenticate, adminOrStaff, orderController.getAllOrders);
 
+// Get single order by ID (admin/staff)
+router.get("/:orderId", authenticate, adminOrStaff, orderController.getOrderById);
+
 // Bill a specific order (table or room)
 router.post("/:orderId/bill", authenticate, adminOrStaff, orderController.billOrder);
 

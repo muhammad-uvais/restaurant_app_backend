@@ -289,6 +289,60 @@ exports.getLatestOrdersByFingerPrint = async (req, res) => {
   }
 };
 
+// Get Single Order by ID (Admin/Staff)
+exports.getOrderById = async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const { orderId } = req.params;
+    const { role, _id, createdBy } = req.user;
+
+    if (!orderId) {
+      return res.status(400).json({
+        message: "orderId is required",
+      });
+    }
+
+    // resolve owner admin id
+    let ownerAdminId;
+
+    if (role === "admin") {
+      ownerAdminId = _id;
+    }
+
+    if (role === "staff") {
+      ownerAdminId = createdBy;
+    }
+
+    // fetch order with ownership check
+    const order = await Order.findOne({
+      _id: orderId,
+      user: ownerAdminId, // 🔥 ensures no cross-restaurant access
+    });
+
+    if (!order) {
+      return res.status(404).json({
+        message: "Order not found",
+      });
+    }
+
+    return res.status(200).json({
+      message: "Order fetched successfully",
+      order,
+    });
+
+  } catch (error) {
+    console.error("Get order error:", error);
+
+    return res.status(500).json({
+      message: "Server error",
+      error: error.message,
+    });
+  }
+};
+
 // Create Order (Admin / Staff)
 exports.createOrderByAdminOrStaff = async (req, res) => {
   try {
