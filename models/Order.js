@@ -50,7 +50,7 @@ const orderSchema = new mongoose.Schema(
 
       unitId: {
         type: mongoose.Schema.Types.ObjectId,
-        required: true,
+        default: null,
       },
 
       unitName: String,
@@ -186,13 +186,20 @@ const orderSchema = new mongoose.Schema(
       required: true,
     },
 
-    roomCharge: {
-      type: Number,
-    },
-
     totalAmount: {
       type: Number,
       required: true,
+    },
+
+    settlementAmount: {
+      type: Number,
+      default: null,
+    },
+
+    paymentMethod: {
+      type: String,
+      enum: ["CASH", "UPI", "CARD"],
+      default: null,
     },
 
     /* -------------------- OPTIONAL (FUTURE) -------------------- */

@@ -1,3 +1,5 @@
+// routes/restaurantRoutes.js
+
 const express = require("express");
 const router = express.Router();
 const restaurantController = require("../controllers/restaurantController");
@@ -6,95 +8,34 @@ const { authenticate } = require("../middleware/authMiddleware");
 const upload = require("../middleware/multer");
 const { authorizeRoles } = require("../middleware/roleMiddleware");
 
-/**
- * ===========================
- * Client (Public) Routes
- * ===========================
- */
+// Public: Get restaurant details using tenant context (QR / domain based)
+router.get("/public", getTenant, restaurantController.getRestaurantDetails);
 
-// Get restaurant details for client (tenant middleware)
-router.get(
-  "/public",
-  getTenant,
-  restaurantController.getRestaurantDetails
-);
+// Admin/Staff: Get own restaurant details
+router.get("/admin", authenticate, authorizeRoles("admin", "staff"), restaurantController.getMyRestaurantDetails);
 
-/**
- * ===========================
- * Admin/Staff (JWT Protected) Routes
- * ===========================
- */
+// Admin: Update restaurant details (supports file upload)
+router.put("/", authenticate, upload.single("file"), authorizeRoles("admin"), restaurantController.updateRestaurantDetails);
 
-// Get logged-in admin or staff's restaurant details
-router.get(
-  "/admin",
-  authenticate,
-  authorizeRoles("admin", "staff"),
-  restaurantController.getMyRestaurantDetails
-);
+// Admin: Update GST configuration
+router.patch("/gst", authenticate, authorizeRoles("admin"), restaurantController.updateGstSettings);
 
-// Update restaurant details (admin only, with file upload)
-router.put(
-  "/",
-  authenticate,
-  upload.single("file"),
-  authorizeRoles("admin"),
-  restaurantController.updateRestaurantDetails
-);
+// Admin: Toggle restaurant open/close status
+router.patch("/status", authenticate, authorizeRoles("admin"), restaurantController.updateRestaurantStatus);
 
-// Update GST settings (admin only)
-router.patch(
-  "/gst",
-  authenticate,
-  authorizeRoles("admin"),
-  restaurantController.updateGstSettings
-);
+// Super Admin: Soft delete restaurant
+router.delete("/", authenticate, authorizeRoles("superadmin"), restaurantController.deleteRestaurant);
 
-// Update restaurant open/close status (admin only)
-router.patch(
-  "/status",
-  authenticate,
-  authorizeRoles("admin"),
-  restaurantController.updateRestaurantStatus
-);
+// Admin: Reorder menu categories
+router.post("/reorder-categories", authenticate, authorizeRoles("admin"), restaurantController.reorderCategories);
 
-// Soft delete restaurant (admin only)
-router.delete(
-  "/",
-  authenticate,
-  authorizeRoles("admin"),
-  restaurantController.deleteRestaurant
-);
+// Admin: Create sections and units (tables/rooms)
+router.post("/units", authenticate, authorizeRoles("admin"), restaurantController.addUnits);
 
-// Reorder categories (admin only)
-router.post(
-  "/reorder-categories",
-  authenticate,
-  authorizeRoles("admin"),
-  restaurantController.reorderCategories
-);
+// Admin: Book a room (initialize stay)
+router.post("/book", authenticate, authorizeRoles("admin"), restaurantController.bookRoom);
 
-// Define sections , create units (table/room) (admin only)
-router.post(
-  "/units",
-  authenticate,
-  authorizeRoles("admin"),
-  restaurantController.addUnits
-);
-
-// Book Room (admin only)
-router.post(
-  "/book",
-  authenticate,
-  authorizeRoles("admin"),
-  restaurantController.bookRoom
-);
-
-// LIVE DASHBOARD
-router.get(
-  "/units/live-status",
-  authenticate,
-  restaurantController.getLiveUnitStatus
-);
+// Admin/Staff: Get live unit occupancy status (tables/rooms)
+router.get("/units/live-status", authenticate, authorizeRoles("admin", "staff"), restaurantController.getLiveUnitStatus);
 
 module.exports = router;

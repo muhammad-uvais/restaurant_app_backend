@@ -159,8 +159,7 @@ exports.loginUser = async (req, res) => {
     }
 
     // Fetch user with restaurant info if exists
-    const user = await User.findOne({ email }).populate("restaurantId");
-
+    const user = await User.findOne({ email })
     if (!user || !(await bcrypt.compare(password, user.password))) {
       return res.status(401).json({ message: "Invalid credentials" });
     }
@@ -169,7 +168,7 @@ exports.loginUser = async (req, res) => {
     const token = generateToken(
       user._id,
       user.role,
-      user.restaurantId,
+      user.user.restaurantId?._id || user.restaurantId,
       user.createdBy,
     );
 
