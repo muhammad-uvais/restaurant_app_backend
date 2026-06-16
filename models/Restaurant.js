@@ -70,8 +70,7 @@ const sectionSchema = new Schema(
     },
 
     units: [unitSchema],
-  },
-  { _id: false }
+  }
 );
 
 /* -------------------- RESTAURANT -------------------- */
@@ -116,7 +115,7 @@ const restaurantSchema = new Schema(
       },
     ],
 
-    /* ---------- 🔥 NEW: SECTIONS WITH UNITS ---------- */
+    /* ---------- NEW: SECTIONS WITH UNITS ---------- */
     sections: [sectionSchema],
 
     phoneNumber: Number,

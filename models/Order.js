@@ -161,7 +161,7 @@ const orderSchema = new mongoose.Schema(
 
     orderType: {
       type: String,
-      enum: ["Eat Here", "Take Away", "Delivery", "ROOM_BOOKING"], // 🔥 ADDED
+      enum: ["Eat Here", "Take Away", "Delivery", "Room Stay"], // 🔥 ADDED
       required: true,
     },
 

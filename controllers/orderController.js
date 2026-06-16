@@ -3,6 +3,7 @@ const Order = require("../models/Order");
 const Restaurant = require("../models/Restaurant");
 const MenuItem = require("../models/MenuItem");
 const orderEmitter = require("../events/orderEvents");
+const occupancyEmitter = require("../events/occupancyEvents");
 const calculateDiscountedPrice = require("../utils/calculateDiscountedPrice");
 const normalizeDiscount = require("../utils/normalizeDiscount");
 
@@ -26,7 +27,7 @@ exports.createOrder = async (req, res) => {
     // unitId is only taken from query (used for QR-based orders)
     const unitId = req.query.unitId;
 
-    // ---------------- VALIDATION ----------------
+    // VALIDATION
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ message: "Items required" });
     }
@@ -87,8 +88,30 @@ exports.createOrder = async (req, res) => {
       });
     }
 
+    // Fetch menu items
+    const menuItems = await MenuItem.find({
+      _id: {
+        $in: items.map(i => i.menuItemId),
+      },
+      visibility: "PUBLIC",
+    });
+
+    if (menuItems.length !== items.length) {
+      return res.status(403).json({
+        message:
+          "One or more items are not available for customer ordering",
+      });
+    }
+
+    const menuMap = {};
+    menuItems.forEach((m) => {
+      menuMap[m._id.toString()] = m;
+    });
+
     // Create a new order if none exists
+    let isNewOrder = false;
     if (!existingOrder) {
+      isNewOrder = true;
       existingOrder = await Order.create({
         user: tenantAdminId,
         createdBy: createdBy || null,
@@ -134,16 +157,6 @@ exports.createOrder = async (req, res) => {
         existingOrder.fingerPrint = fingerPrint;
       }
     }
-
-    // Fetch menu items
-    const menuItems = await MenuItem.find({
-      _id: { $in: items.map((i) => i.menuItemId) },
-    });
-
-    const menuMap = {};
-    menuItems.forEach((m) => {
-      menuMap[m._id.toString()] = m;
-    });
 
     let addSubtotal = 0;
 
@@ -215,11 +228,39 @@ exports.createOrder = async (req, res) => {
       existingOrder.gstAmount +
       existingOrder.deliveryCharges;
 
+    // Sync order status with item readiness
+    const totalItems = existingOrder.items.length;
+
+    const readyItems = existingOrder.items.filter(
+      (item) => item.isReady
+    ).length;
+
+    if (readyItems === 0) {
+      existingOrder.status = "pending";
+    } else if (readyItems < totalItems) {
+      existingOrder.status = "preparing";
+    } else {
+      existingOrder.status = "ready";
+    }
+
     await existingOrder.save();
+
+    if (isNewOrder) {
+      orderEmitter.emit(
+        "orderCreated",
+        existingOrder.toObject()
+      );
+    } else {
+      orderEmitter.emit(
+        "orderUpdated",
+        existingOrder.toObject()
+      );
+    }
 
     // Update occupancy for Eat Here orders
     if (orderType === "Eat Here" && resolvedUnit) {
       if (resolvedUnit.type === "TABLE") {
+        const wasAvailable = resolvedUnit.status === "AVAILABLE";
         resolvedUnit.status = "OCCUPIED";
 
         if (!resolvedUnit.occupancy?.checkInTime) {
@@ -231,6 +272,20 @@ exports.createOrder = async (req, res) => {
 
         resolvedUnit.currentOrderId = existingOrder._id;
         await restaurant.save();
+
+        if (wasAvailable) {
+          occupancyEmitter.emit(
+            "occupancyChanged",
+            {
+              user: restaurant.user,
+              action: "TABLE_OCCUPIED",
+              unitId: resolvedUnit._id,
+              orderId: existingOrder._id,
+              sectionName: resolvedSection,
+              unitName: resolvedUnit.name,
+            }
+          );
+        }
       }
 
       if (resolvedUnit.type === "ROOM") {
@@ -557,9 +612,15 @@ exports.createOrderByAdminOrStaff = async (req, res) => {
 
     await existingOrder.save();
 
+    orderEmitter.emit(
+      "orderCreated",
+      existingOrder.toObject()
+    );
+
     // Update unit occupancy (only for dine-in)
     if (isDineIn && resolvedUnit) {
       if (resolvedUnit.type === "TABLE") {
+        const wasAvailable = resolvedUnit.status === "AVAILABLE";
         resolvedUnit.status = "OCCUPIED";
 
         if (!resolvedUnit.occupancy?.checkInTime) {
@@ -571,6 +632,20 @@ exports.createOrderByAdminOrStaff = async (req, res) => {
 
         resolvedUnit.currentOrderId = existingOrder._id;
         await restaurant.save();
+
+        if (wasAvailable) {
+          occupancyEmitter.emit(
+            "occupancyChanged",
+            {
+              user: restaurant.user,
+              action: "TABLE_OCCUPIED",
+              unitId: resolvedUnit._id,
+              orderId: existingOrder._id,
+              sectionName: resolvedSection,
+              unitName: resolvedUnit.name,
+            }
+          );
+        }
       }
 
       if (resolvedUnit.type === "ROOM") {
@@ -579,10 +654,6 @@ exports.createOrderByAdminOrStaff = async (req, res) => {
         await restaurant.save();
       }
     }
-
-    // Takeaway / Delivery → no unit updates
-
-    orderEmitter.emit("orderCreated", existingOrder);
 
     return res.status(200).json({
       message: "Order processed successfully",
@@ -687,7 +758,7 @@ exports.updateOrder = async (req, res) => {
     const { orderId } = req.params;
     const updates = { ...req.body };
 
-    const ALLOWED_ORDER_TYPES = ["Eat Here", "Take Away", "Delivery"];
+    const ALLOWED_ORDER_TYPES = ["Eat Here", "Take Away", "Delivery", "Room Stay"];
     const SIMPLE_FIELDS = ["address", "orderType"];
 
     //Prevent restricted fields
@@ -713,6 +784,9 @@ exports.updateOrder = async (req, res) => {
     }
 
     const updatePayload = {};
+    let occupancyChanged = false;
+    let occupancyAction = null;
+    let occupancyData = null;
 
     // VALIDATE ORDER TYPE
     if (updates.orderType && !ALLOWED_ORDER_TYPES.includes(updates.orderType)) {
@@ -725,15 +799,64 @@ exports.updateOrder = async (req, res) => {
       }
     });
 
-    const finalOrderType = updates.orderType || existingOrder.orderType;
+    const finalOrderType =
+      updates.orderType || existingOrder.orderType;
+
+    /* ==========================================
+       RELEASE TABLE IF MOVING AWAY FROM EAT HERE
+    ========================================== */
+
+    if (
+      existingOrder.orderType === "Eat Here" &&
+      finalOrderType !== "Eat Here"
+    ) {
+      const restaurant = await Restaurant.findOne({
+        user: existingOrder.user,
+        deleted: false,
+      });
+
+      if (restaurant && existingOrder.source?.unitId) {
+        for (const section of restaurant.sections) {
+          const unit = section.units.id(
+            existingOrder.source.unitId
+          );
+
+          if (unit) {
+            unit.status = "AVAILABLE";
+            unit.currentOrderId = null;
+
+            unit.occupancy = {
+              checkInTime: null,
+              checkOutTime: null,
+            };
+
+            break;
+          }
+        }
+
+        await restaurant.save();
+        occupancyChanged = true;
+        occupancyAction = "UNIT_RELEASED";
+
+        occupancyData = {
+          user: existingOrder.user,
+          orderId: existingOrder._id,
+          unitId: unit._id,
+          unitName: unit.name,
+          sectionName: section.name,
+          unitType: unit.type,
+        };
+      }
+    }
 
     // SOURCE HANDLING
-    if (finalOrderType === "Eat Here") {
+    if (finalOrderType === "Eat Here" || finalOrderType === "Room Stay") {
       const unitId = updates.source?.unitId || existingOrder.source?.unitId;
 
       if (!unitId) {
         return res.status(400).json({
-          message: "unitId is required for Eat Here orders",
+          message:
+            "unitId is required for Eat Here and Room Stay orders",
         });
       }
 
@@ -766,6 +889,34 @@ exports.updateOrder = async (req, res) => {
         unitName: resolvedUnit.name,
         type: resolvedUnit.type,
       };
+
+      if (
+        existingOrder.orderType !== "Eat Here" &&
+        finalOrderType === "Eat Here"
+      ) {
+        resolvedUnit.status = "OCCUPIED";
+        resolvedUnit.currentOrderId = existingOrder._id;
+
+        if (!resolvedUnit.occupancy?.checkInTime) {
+          resolvedUnit.occupancy = {
+            checkInTime: new Date(),
+            checkOutTime: null,
+          };
+        }
+
+        await restaurant.save();
+        occupancyChanged = true;
+        occupancyAction = "UNIT_OCCUPIED";
+
+        occupancyData = {
+          user: existingOrder.user,
+          orderId: existingOrder._id,
+          unitId: resolvedUnit._id,
+          unitName: resolvedUnit.name,
+          sectionName: resolvedSection,
+          unitType: resolvedUnit.type,
+        };
+      }
 
     } else {
       // Take Away / Delivery
@@ -895,17 +1046,28 @@ exports.updateOrder = async (req, res) => {
       }
     }
 
-    if (!baseItems.length) {
+    if (
+      !baseItems.length &&
+      !existingOrder.stay?.enabled
+    ) {
       return res.status(400).json({
         message: "Order must contain at least 1 item",
       });
     }
 
     // TOTAL
-    const subtotal = baseItems.reduce(
+    let subtotal = baseItems.reduce(
       (sum, i) => sum + (i.discountedPrice || i.price) * i.quantity,
       0
     );
+
+    // room booking + cancel food order
+    if (
+      updates.status === "cancelled" &&
+      existingOrder.stay?.enabled
+    ) {
+      subtotal = 0;
+    }
 
     const restaurant = await Restaurant.findOne({
       user: existingOrder.user,
@@ -922,6 +1084,83 @@ exports.updateOrder = async (req, res) => {
 
     const totalAmount = subtotal + gstAmount + deliveryCharges;
 
+    // update status 
+    const ALLOWED_STATUS = [
+      "pending",
+      "preparing",
+      "ready",
+      "completed",
+      "cancelled",
+    ];
+
+    if (updates.status !== undefined) {
+      if (!ALLOWED_STATUS.includes(updates.status)) {
+        return res.status(400).json({
+          message: "Invalid status",
+        });
+      }
+
+      // ROOM BOOKING ORDER
+      if (
+        updates.status === "cancelled" &&
+        existingOrder.stay?.enabled
+      ) {
+
+        // only room booking exists
+        if (existingOrder.items.length === 0) {
+          return res.status(400).json({
+            message:
+              "This is a room booking. Use cancelRoomBooking endpoint.",
+          });
+        }
+
+        // room + food
+        baseItems = [];
+
+        subtotal = 0;
+
+        updatePayload.status = existingOrder.status;
+      } else {
+        if (updates.status === "ready") {
+          baseItems = baseItems.map(item => ({
+            ...item,
+            isReady: true,
+          }));
+        }
+
+        updatePayload.status = updates.status;
+      }
+    }
+
+    // Auto recalculate status from items
+    if (
+      !(
+        updates.status === "cancelled" &&
+        existingOrder.stay?.enabled
+      )
+    ) {
+
+      if (
+        updates.status === undefined &&
+        existingOrder.status !== "completed" &&
+        existingOrder.status !== "cancelled"
+      ) {
+        const totalItems = baseItems.length;
+
+        const readyItems = baseItems.filter(
+          item => item.isReady
+        ).length;
+
+        if (readyItems === 0) {
+          updatePayload.status = "pending";
+        } else if (readyItems < totalItems) {
+          updatePayload.status = "preparing";
+        } else {
+          updatePayload.status = "ready";
+        }
+      }
+    }
+
     Object.assign(updatePayload, {
       items: baseItems,
       subtotal,
@@ -931,6 +1170,50 @@ exports.updateOrder = async (req, res) => {
       totalAmount,
     });
 
+    if (
+      updates.status === "cancelled" &&
+      existingOrder.source?.type === "TABLE"
+    ) {
+      const restaurant = await Restaurant.findOne({
+        user: existingOrder.user,
+        deleted: false,
+      });
+
+      if (restaurant) {
+        for (const section of restaurant.sections) {
+          const unit = section.units.id(
+            existingOrder.source.unitId
+          );
+
+          if (unit) {
+            unit.status = "AVAILABLE";
+            unit.currentOrderId = null;
+
+            unit.occupancy = {
+              checkInTime: null,
+              checkOutTime: null,
+            };
+
+            await restaurant.save();
+
+            occupancyChanged = true;
+            occupancyAction = "UNIT_RELEASED";
+
+            occupancyData = {
+              user: existingOrder.user,
+              orderId: existingOrder._id,
+              unitId: unit._id,
+              unitName: unit.name,
+              sectionName: section.name,
+              unitType: unit.type,
+            };
+
+            break;
+          }
+        }
+      }
+    }
+
     // UPDATE
     const updatedOrder = await Order.findByIdAndUpdate(
       orderId,
@@ -938,7 +1221,20 @@ exports.updateOrder = async (req, res) => {
       { new: true }
     );
 
-    orderEmitter.emit("orderUpdated", updatedOrder);
+    orderEmitter.emit("orderUpdated", updatedOrder.toObject());
+
+    if (
+      occupancyChanged &&
+      occupancyData
+    ) {
+      occupancyEmitter.emit(
+        "occupancyChanged",
+        {
+          ...occupancyData,
+          action: occupancyAction,
+        }
+      );
+    }
 
     return res.status(200).json({
       message: "Order updated successfully",
@@ -1246,6 +1542,13 @@ exports.moveOrder = async (req, res) => {
     await order.save();
     await restaurant.save();
 
+    occupancyEmitter.emit("occupancyChanged", {
+      action: "ORDER_MOVED",
+      fromUnitId: oldTable._id,
+      toUnitId: newTable._id,
+      orderId: order._id,
+    });
+
     return res.json({
       message: "Order shifted successfully",
       order,
@@ -1362,9 +1665,22 @@ exports.payOrder = async (req, res) => {
       };
 
       await restaurant.save();
+      occupancyEmitter.emit(
+        "occupancyChanged",
+        {
+          user: restaurant.user,
+          action: "TABLE_RELEASED",
+          unitId: resolvedUnit._id,
+          orderId: order._id,
+          sectionName: resolvedSection,
+          unitName: resolvedUnit.name,
+        }
+      );
     }
 
     await order.save();
+    orderEmitter.emit("orderUpdated", updatedOrder.toObject());
+
 
     return res.status(200).json({
       message: "Payment successful",
@@ -1373,6 +1689,100 @@ exports.payOrder = async (req, res) => {
 
   } catch (error) {
     console.error("Payment error:", error);
+    return res.status(500).json({
+      message: error.message,
+    });
+  }
+};
+
+// Cancel Room Booking
+exports.cancelRoomBooking = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+
+    const order = await Order.findById(orderId);
+
+    if (!order) {
+      return res.status(404).json({
+        message: "Order not found",
+      });
+    }
+
+    if (!order.stay?.enabled) {
+      return res.status(400).json({
+        message: "Not a room booking",
+      });
+    }
+
+    const restaurant = await Restaurant.findById(
+      order.source.restaurantId
+    );
+
+    if (!restaurant) {
+      return res.status(404).json({
+        message: "Restaurant not found",
+      });
+    }
+
+    let roomUnit = null;
+
+    for (const section of restaurant.sections) {
+      const unit = section.units.id(
+        order.source.unitId
+      );
+
+      if (unit) {
+        roomUnit = unit;
+        break;
+      }
+    }
+
+    if (!roomUnit) {
+      return res.status(404).json({
+        message: "Room not found",
+      });
+    }
+
+    // Save checkout history in order
+    order.stay.checkOutTime = new Date();
+
+    // Mark booking cancelled
+    order.items = [];
+    order.subtotal = 0;
+    order.gstAmount = 0;
+    order.totalAmount = 0;
+    order.status = "cancelled";
+
+    await order.save();
+
+    // Free room
+    roomUnit.status = "AVAILABLE";
+    roomUnit.currentOrderId = null;
+
+    // Clear live occupancy
+    roomUnit.occupancy = {
+      checkInTime: null,
+      checkOutTime: null,
+    };
+
+    await restaurant.save();
+
+    occupancyEmitter.emit("occupancyChanged", {
+      action: "ROOM_CANCELLED",
+      unitId: roomUnit._id,
+      unitName: roomUnit.name,
+      type: "ROOM",
+      status: roomUnit.status,
+      currentOrderId: null,
+    });
+
+    return res.status(200).json({
+      message: "Room booking cancelled successfully",
+    });
+
+  } catch (error) {
+    console.error("Cancel room booking error:", error);
+
     return res.status(500).json({
       message: error.message,
     });

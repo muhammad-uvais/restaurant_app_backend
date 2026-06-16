@@ -168,7 +168,7 @@ exports.loginUser = async (req, res) => {
     const token = generateToken(
       user._id,
       user.role,
-      user.user.restaurantId?._id || user.restaurantId,
+      user.restaurantId?._id || user.restaurantId,
       user.createdBy,
     );
 
@@ -184,7 +184,6 @@ exports.loginUser = async (req, res) => {
         restaurantName: user.restaurantId
           ? user.restaurantId.restaurantName
           : null,
-        qrCode: user.restaurantId ? user.restaurantId.qrCode : null,
         createdBy: user.createdBy || null, // for staff
       },
       token,

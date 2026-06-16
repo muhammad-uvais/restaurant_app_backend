@@ -1,5 +1,4 @@
 // routes/restaurantRoutes.js
-
 const express = require("express");
 const router = express.Router();
 const restaurantController = require("../controllers/restaurantController");
@@ -9,16 +8,16 @@ const upload = require("../middleware/multer");
 const { authorizeRoles } = require("../middleware/roleMiddleware");
 
 // Public: Get restaurant details using tenant context (QR / domain based)
-router.get("/public", getTenant, restaurantController.getRestaurantDetails);
+router.get("/public", getTenant, restaurantController.getPublicRestaurant);
 
-// Admin/Staff: Get own restaurant details
-router.get("/admin", authenticate, authorizeRoles("admin", "staff"), restaurantController.getMyRestaurantDetails);
+// Admin/Staff: Get restaurant details
+router.get("/private", authenticate, authorizeRoles("admin", "staff"), restaurantController.getRestaurant);
 
 // Admin: Update restaurant details (supports file upload)
-router.put("/", authenticate, upload.single("file"), authorizeRoles("admin"), restaurantController.updateRestaurantDetails);
+router.put("/", authenticate, upload.single("file"), authorizeRoles("admin"), restaurantController.updateRestaurant);
 
 // Admin: Update GST configuration
-router.patch("/gst", authenticate, authorizeRoles("admin"), restaurantController.updateGstSettings);
+router.patch("/gst", authenticate, authorizeRoles("admin"), restaurantController.updateRestaurantGST);
 
 // Admin: Toggle restaurant open/close status
 router.patch("/status", authenticate, authorizeRoles("admin"), restaurantController.updateRestaurantStatus);
@@ -26,16 +25,34 @@ router.patch("/status", authenticate, authorizeRoles("admin"), restaurantControl
 // Super Admin: Soft delete restaurant
 router.delete("/", authenticate, authorizeRoles("superadmin"), restaurantController.deleteRestaurant);
 
+// Admin: Add category
+router.post("/categories", authenticate, authorizeRoles("admin"), restaurantController.createCategories);
+
+// Admin: Rename category
+router.patch("categories/:categoryId", authenticate, authorizeRoles("admin"), restaurantController.updateCategory);
+
 // Admin: Reorder menu categories
-router.post("/reorder-categories", authenticate, authorizeRoles("admin"), restaurantController.reorderCategories);
+router.post("categories/reorder", authenticate, authorizeRoles("admin"), restaurantController.reorderCategories);
+
+// Admin: Delete category
+router.delete("categories/:categoryId", authenticate, authorizeRoles("admin"), restaurantController.deleteCategory);
 
 // Admin: Create sections and units (tables/rooms)
-router.post("/units", authenticate, authorizeRoles("admin"), restaurantController.addUnits);
+router.post("/sections", authenticate, authorizeRoles("admin"), restaurantController.createSectionsAndUnits);
+
+// Admin: Update Section
+router.patch("/sections", authenticate, authorizeRoles("admin"),restaurantController.updateSections);
+
+// Admin: Delete Section
+router.delete("/sections/:sectionId", authenticate, authorizeRoles("admin"), restaurantController.deleteSection);
+
+// Admin: Delete Unit
+router.delete("/sections/units/:unitId", authenticate, authorizeRoles("admin"), restaurantController.deleteUnit);
 
 // Admin: Book a room (initialize stay)
-router.post("/book", authenticate, authorizeRoles("admin"), restaurantController.bookRoom);
+router.post("/room-booking", authenticate, authorizeRoles("admin"), restaurantController.createRoomBooking);
 
 // Admin/Staff: Get live unit occupancy status (tables/rooms)
-router.get("/units/live-status", authenticate, authorizeRoles("admin", "staff"), restaurantController.getLiveUnitStatus);
+router.get("/units/live-status", authenticate, authorizeRoles("admin", "staff"), restaurantController.getLiveOccupancy);
 
 module.exports = router;

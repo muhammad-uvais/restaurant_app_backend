@@ -1,16 +1,13 @@
 // routes/orderRoutes.js
-
 const express = require("express");
 const router = express.Router();
 const orderController = require("../controllers/orderController");
 const { authenticate } = require("../middleware/authMiddleware");
 const getTenant = require("../middleware/tenantMiddleware");
 const { authorizeRoles } = require("../middleware/roleMiddleware");
-
-// ─── Admin / Staff shorthand ──────────────────────────────────────────────────
 const adminOrStaff = authorizeRoles("admin", "staff");
 
-// ─── Public routes (no auth required) ────────────────────────────────────────
+// Public routes (no auth required) 
 
 // Create a new order (initiated by a client/guest)
 router.post("/", getTenant, orderController.createOrder);
@@ -18,7 +15,7 @@ router.post("/", getTenant, orderController.createOrder);
 // Fetch the latest orders tied to the caller's browser fingerprint
 router.get("/fingerprint", getTenant, orderController.getLatestOrdersByFingerPrint);
 
-// ─── Protected routes (authentication required) ───────────────────────────────
+// Protected routes (authentication required)
 
 // Create an order on behalf of a client (admin / staff only)
 router.post("/protected", authenticate, adminOrStaff, orderController.createOrderByAdminOrStaff);
@@ -40,6 +37,9 @@ router.post("/:orderId/move", authenticate, adminOrStaff, orderController.moveOr
 
 // Update order details (admin / staff only)
 router.put("/:orderId", authenticate, adminOrStaff, orderController.updateOrder);
+
+// Cancel room bookinh (admin / staff only)
+router.post("/:orderId/cancel-booking", authenticate, adminOrStaff, orderController.cancelRoomBooking)
 
 // Toggle the ready-state of a single item within an order
 router.patch("/:orderId/items/:itemId/toggle-ready", authenticate, adminOrStaff, orderController.toggleItemReady);
