@@ -3,7 +3,6 @@ const bcrypt = require("bcryptjs");
 const User = require("../models/User");
 const Restaurant = require("../models/Restaurant");
 const generateToken = require("../utils/generateToken");
-const generateAndUploadQR = require("../utils/generateQR");
 
 // Register User
 exports.registerUser = async (req, res) => {
@@ -34,11 +33,6 @@ exports.registerUser = async (req, res) => {
           });
         }
 
-        const path = require("path");
-        const logoPath = path.join(__dirname, "../assets/logo.jpeg");
-
-        const qrCode = await generateAndUploadQR(domain, logoPath);
-
         const createdBy = creator ? creator._id : null;
 
         const admin = await User.create({
@@ -52,11 +46,7 @@ exports.registerUser = async (req, res) => {
           user: admin._id,
           name,
           restaurantName,
-          domain,
-          qrCode: {
-            url: qrCode.url,
-            public_id: qrCode.public_id,
-          },
+          domain
         });
 
         admin.restaurantId = restaurant._id;
@@ -77,7 +67,6 @@ exports.registerUser = async (req, res) => {
           restaurant: {
             _id: restaurant._id,
             restaurantName: restaurant.restaurantName,
-            qrCode: restaurant.qrCode,
           },
           token,
         });
@@ -170,8 +159,7 @@ exports.loginUser = async (req, res) => {
     }
 
     // Fetch user with restaurant info if exists
-    const user = await User.findOne({ email }).populate("restaurantId");
-
+    const user = await User.findOne({ email })
     if (!user || !(await bcrypt.compare(password, user.password))) {
       return res.status(401).json({ message: "Invalid credentials" });
     }
@@ -180,7 +168,7 @@ exports.loginUser = async (req, res) => {
     const token = generateToken(
       user._id,
       user.role,
-      user.restaurantId,
+      user.restaurantId?._id || user.restaurantId,
       user.createdBy,
     );
 
@@ -196,7 +184,6 @@ exports.loginUser = async (req, res) => {
         restaurantName: user.restaurantId
           ? user.restaurantId.restaurantName
           : null,
-        qrCode: user.restaurantId ? user.restaurantId.qrCode : null,
         createdBy: user.createdBy || null, // for staff
       },
       token,
