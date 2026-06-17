@@ -65,9 +65,16 @@ exports.createOrder = async (req, res) => {
         return res.status(404).json({ message: "Unit not found" });
       }
 
-      // For rooms, ensure it is already booked
+      // For rooms, ensure an active Room Stay booking exists
       if (resolvedUnit.type === "ROOM") {
-        if (resolvedUnit.status !== "OCCUPIED") {
+        const activeRoomStay = await Order.findOne({
+          "source.unitId": resolvedUnit._id,
+          orderType: "Room Stay",
+          "stay.enabled": true,
+          status: { $nin: ["completed", "cancelled"] },
+        });
+
+        if (!activeRoomStay) {
           return res.status(400).json({
             message: "Room is not booked by admin",
           });
@@ -474,9 +481,16 @@ exports.createOrderByAdminOrStaff = async (req, res) => {
         });
       }
 
-      // Room must already be booked
+      // For rooms, ensure an active Room Stay booking exists
       if (resolvedUnit.type === "ROOM") {
-        if (resolvedUnit.status !== "OCCUPIED") {
+        const activeRoomStay = await Order.findOne({
+          "source.unitId": resolvedUnit._id,
+          orderType: "Room Stay",
+          "stay.enabled": true,
+          status: { $nin: ["completed", "cancelled"] },
+        });
+
+        if (!activeRoomStay) {
           return res.status(400).json({
             message: "Room is not booked by admin",
           });

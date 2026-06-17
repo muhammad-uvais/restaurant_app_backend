@@ -29,13 +29,13 @@ router.delete("/", authenticate, authorizeRoles("superadmin"), restaurantControl
 router.post("/categories", authenticate, authorizeRoles("admin"), restaurantController.createCategories);
 
 // Admin: Rename category
-router.patch("categories/:categoryId", authenticate, authorizeRoles("admin"), restaurantController.updateCategory);
+router.patch("/categories/:categoryId", authenticate, authorizeRoles("admin"), restaurantController.updateCategory);
 
 // Admin: Reorder menu categories
-router.post("categories/reorder", authenticate, authorizeRoles("admin"), restaurantController.reorderCategories);
+router.post("/categories/reorder", authenticate, authorizeRoles("admin"), restaurantController.reorderCategories);
 
 // Admin: Delete category
-router.delete("categories/:categoryId", authenticate, authorizeRoles("admin"), restaurantController.deleteCategory);
+router.delete("/categories/:categoryId", authenticate, authorizeRoles("admin"), restaurantController.deleteCategory);
 
 // Admin: Create sections and units (tables/rooms)
 router.post("/sections", authenticate, authorizeRoles("admin"), restaurantController.createSectionsAndUnits);
