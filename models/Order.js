@@ -2,7 +2,7 @@ const mongoose = require("mongoose");
 
 const orderSchema = new mongoose.Schema(
   {
-    /* -------------------- USER INFO -------------------- */
+    // USER INFO
     user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -38,7 +38,7 @@ const orderSchema = new mongoose.Schema(
 
     address: String,
 
-    /* -------------------- SOURCE (TABLE / ROOM) -------------------- */
+    // SOURCE (TABLE / ROOM) 
     source: {
       restaurantId: {
         type: mongoose.Schema.Types.ObjectId,
@@ -62,7 +62,7 @@ const orderSchema = new mongoose.Schema(
       },
     },
 
-    /* -------------------- ROOM STAY (ONLY FOR ROOMS) -------------------- */
+    //  ROOM STAY (ONLY FOR ROOMS)
     stay: {
       type: {
         enabled: {
@@ -94,10 +94,10 @@ const orderSchema = new mongoose.Schema(
           default: 0,
         },
       },
-      default: undefined, // 🔥 KEY FIX
+      default: undefined,
     },
 
-    /* -------------------- FOOD ITEMS -------------------- */
+    // FOOD ITEMS
     items: [
       {
         menuItemId: {
@@ -152,7 +152,7 @@ const orderSchema = new mongoose.Schema(
       },
     ],
 
-    /* -------------------- ORDER STATUS -------------------- */
+    // ORDER STATUS
     status: {
       type: String,
       enum: ["pending", "preparing", "ready", "completed", "cancelled"],
@@ -161,11 +161,11 @@ const orderSchema = new mongoose.Schema(
 
     orderType: {
       type: String,
-      enum: ["Eat Here", "Take Away", "Delivery", "Room Stay"], // 🔥 ADDED
+      enum: ["Eat Here", "Take Away", "Delivery", "Room Stay"], 
       required: true,
     },
 
-    /* -------------------- BILLING -------------------- */
+    // BILLING
     subtotal: {
       type: Number,
       required: true,
@@ -201,14 +201,12 @@ const orderSchema = new mongoose.Schema(
       enum: ["CASH", "UPI", "CARD"],
       default: null,
     },
-
-    /* -------------------- OPTIONAL (FUTURE) -------------------- */
     completedAt: Date,
   },
   { timestamps: true }
 );
 
-/* -------------------- INDEXES (IMPORTANT) -------------------- */
+// INDEXES (IMPORTANT)
 orderSchema.index({ "source.unitId": 1, status: 1 });
 orderSchema.index({ fingerPrint: 1, "source.unitId": 1 });
 

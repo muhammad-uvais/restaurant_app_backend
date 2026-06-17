@@ -802,9 +802,8 @@ exports.updateOrder = async (req, res) => {
     const finalOrderType =
       updates.orderType || existingOrder.orderType;
 
-    /* ==========================================
-       RELEASE TABLE IF MOVING AWAY FROM EAT HERE
-    ========================================== */
+
+    // RELEASE TABLE IF MOVING AWAY FROM EAT HERE
 
     if (
       existingOrder.orderType === "Eat Here" &&
@@ -816,6 +815,8 @@ exports.updateOrder = async (req, res) => {
       });
 
       if (restaurant && existingOrder.source?.unitId) {
+        let releasedUnit = null;
+        let releasedSection = null;
         for (const section of restaurant.sections) {
           const unit = section.units.id(
             existingOrder.source.unitId
@@ -830,6 +831,9 @@ exports.updateOrder = async (req, res) => {
               checkOutTime: null,
             };
 
+            releasedUnit = unit;
+            releasedSection = section;
+
             break;
           }
         }
@@ -841,10 +845,10 @@ exports.updateOrder = async (req, res) => {
         occupancyData = {
           user: existingOrder.user,
           orderId: existingOrder._id,
-          unitId: unit._id,
-          unitName: unit.name,
-          sectionName: section.name,
-          unitType: unit.type,
+          unitId: releasedUnit._id,
+          unitName: releasedUnit.name,
+          sectionName: releasedSection.name,
+          unitType: releasedUnit.type,
         };
       }
     }
@@ -1254,12 +1258,15 @@ exports.toggleItemReady = async (req, res) => {
   try {
     const { orderId, itemId } = req.params;
 
+    // Get current order
     const order = await Order.findById(orderId);
+
     if (!order) {
-      return res.status(404).json({ message: "Order not found" });
+      return res.status(404).json({
+        message: "Order not found",
+      });
     }
 
-    //  Prevent modification after completion
     if (["completed", "cancelled"].includes(order.status)) {
       return res.status(400).json({
         message: "Cannot modify items of a completed/cancelled order",
@@ -1271,34 +1278,68 @@ exports.toggleItemReady = async (req, res) => {
     );
 
     if (!item) {
-      return res.status(404).json({ message: "Item not found" });
+      return res.status(404).json({
+        message: "Item not found",
+      });
     }
 
-    //  Toggle
-    item.isReady = !item.isReady;
+    const newReadyState = !item.isReady;
 
-    order.markModified("items");
+    // Atomic item update
+    let updatedOrder = await Order.findOneAndUpdate(
+      {
+        _id: orderId,
+        "items._id": itemId,
+      },
+      {
+        $set: {
+          "items.$.isReady": newReadyState,
+        },
+      },
+      {
+        new: true,
+      }
+    );
 
-    // STATUS RECALC
-    const totalItems = order.items.length;
-    const readyItems = order.items.filter(i => i.isReady).length;
+    // Recalculate status
+    const totalItems = updatedOrder.items.length;
+    const readyItems = updatedOrder.items.filter(
+      (i) => i.isReady
+    ).length;
+
+    let newStatus = "pending";
 
     if (readyItems === 0) {
-      order.status = "pending";
+      newStatus = "pending";
     } else if (readyItems < totalItems) {
-      order.status = "preparing";
+      newStatus = "preparing";
     } else {
-      order.status = "ready";
+      newStatus = "ready";
     }
 
-    const updatedOrder = await order.save();
+    // Update status only if changed
+    if (updatedOrder.status !== newStatus) {
+      updatedOrder = await Order.findByIdAndUpdate(
+        orderId,
+        {
+          status: newStatus,
+        },
+        {
+          new: true,
+        }
+      );
+    }
 
-    orderEmitter.emit("orderUpdated", updatedOrder);
+    orderEmitter.emit("orderUpdated", {
+      user: updatedOrder.user,
+      action: "ITEM_READY_TOGGLED",
+      order: updatedOrder.toObject(),
+    });
 
     return res.status(200).json(updatedOrder);
-
   } catch (error) {
     console.error("Toggle item ready error:", error);
+
     return res.status(500).json({
       message: error.message,
     });
@@ -1396,16 +1437,21 @@ exports.billOrder = async (req, res) => {
 
     await order.save();
 
-    //====================================
+    orderEmitter.emit("orderUpdated", {
+      action: "ORDER_BILLED",
+      order: order.toObject(),
+    });
+
     //  HANDLE UNIT ONLY FOR TABLE / ROOM
-    //====================================
     if (order.source.type === "TABLE" || order.source.type === "ROOM") {
       let resolvedUnit = null;
+      let resolvedSection = null;
 
       for (const section of restaurant.sections) {
         const unit = section.units.id(order.source.unitId);
         if (unit) {
           resolvedUnit = unit;
+          resolvedSection = section;
           break;
         }
       }
@@ -1414,6 +1460,19 @@ exports.billOrder = async (req, res) => {
         resolvedUnit.status = "BILLED";
 
         await restaurant.save();
+
+        occupancyEmitter.emit("occupancyChanged", {
+          action: "UNIT_BILLED",
+          user: order.user,
+          orderId: order._id,
+          unitId: resolvedUnit._id,
+          unitName: resolvedUnit.name,
+          sectionId: resolvedSection._id,
+          sectionName: resolvedSection.name,
+          unitType: resolvedUnit.type,
+          status: resolvedUnit.status,
+          completedAt: order.completedAt,
+        });
       }
     }
 
@@ -1543,10 +1602,16 @@ exports.moveOrder = async (req, res) => {
     await restaurant.save();
 
     occupancyEmitter.emit("occupancyChanged", {
-      action: "ORDER_MOVED",
-      fromUnitId: oldTable._id,
-      toUnitId: newTable._id,
+      user: restaurant.user,
+      action: "UNIT_MOVED",
+      fromUnitId: oldUnit._id,
+      toUnitId: targetUnit._id,
       orderId: order._id,
+    });
+
+    orderEmitter.emit("orderUpdated", {
+      user: order.user,
+      order: order.toObject(),
     });
 
     return res.json({
@@ -1640,11 +1705,13 @@ exports.payOrder = async (req, res) => {
       }
 
       let resolvedUnit = null;
+      let resolvedSection = null;
 
       for (const section of restaurant.sections) {
         const unit = section.units.id(order.source.unitId);
         if (unit) {
           resolvedUnit = unit;
+          resolvedSection = section;
           break;
         }
       }
@@ -1669,17 +1736,20 @@ exports.payOrder = async (req, res) => {
         "occupancyChanged",
         {
           user: restaurant.user,
-          action: "TABLE_RELEASED",
+          action:
+            order.source.type === "ROOM"
+              ? "ROOM_RELEASED"
+              : "TABLE_RELEASED",
           unitId: resolvedUnit._id,
           orderId: order._id,
-          sectionName: resolvedSection,
+          sectionName: resolvedSection.name,
           unitName: resolvedUnit.name,
         }
       );
     }
 
     await order.save();
-    orderEmitter.emit("orderUpdated", updatedOrder.toObject());
+    orderEmitter.emit("orderUpdated", order.toObject());
 
 
     return res.status(200).json({
