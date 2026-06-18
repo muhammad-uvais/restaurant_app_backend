@@ -45,6 +45,6 @@ router.post("/:orderId/cancel-booking", authenticate, adminOrStaff, orderControl
 router.patch("/:orderId/items/:itemId/toggle-ready", authenticate, adminOrStaff, orderController.toggleItemReady);
 
 // Cancel an order (admin / staff only)
-router.delete("/:orderId", authenticate, adminOrStaff, orderController.cancelOrder);
+router.delete("/:orderId", authenticate, adminOrStaff, orderController.deleteOrder);
 
 module.exports = router;

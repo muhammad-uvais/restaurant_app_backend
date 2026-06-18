@@ -161,7 +161,7 @@ const orderSchema = new mongoose.Schema(
 
     orderType: {
       type: String,
-      enum: ["Eat Here", "Take Away", "Delivery", "Room Stay"], 
+      enum: ["Eat Here", "Take Away", "Delivery", "Room Stay"],
       required: true,
     },
 
@@ -202,6 +202,10 @@ const orderSchema = new mongoose.Schema(
       default: null,
     },
     completedAt: Date,
+    deleted: {
+      type: Boolean,
+      default: false,
+    },
   },
   { timestamps: true }
 );

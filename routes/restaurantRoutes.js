@@ -7,6 +7,9 @@ const { authenticate } = require("../middleware/authMiddleware");
 const upload = require("../middleware/multer");
 const { authorizeRoles } = require("../middleware/roleMiddleware");
 
+// Public: qr info
+router.get("/public/qr-info", restaurantController.getQrInfo);
+
 // Public: Get restaurant details using tenant context (QR / domain based)
 router.get("/public", getTenant, restaurantController.getPublicRestaurant);
 
@@ -50,7 +53,7 @@ router.delete("/sections/:sectionId", authenticate, authorizeRoles("admin"), res
 router.delete("/sections/units/:unitId", authenticate, authorizeRoles("admin"), restaurantController.deleteUnit);
 
 // Admin: Book a room (initialize stay)
-router.post("/room-booking", authenticate, authorizeRoles("admin"), restaurantController.createRoomBooking);
+router.post("/room-booking", authenticate, authorizeRoles("admin", "staff"), restaurantController.createRoomBooking);
 
 // Admin/Staff: Get live unit occupancy status (tables/rooms)
 router.get("/units/live-status", authenticate, authorizeRoles("admin", "staff"), restaurantController.getLiveOccupancy);
