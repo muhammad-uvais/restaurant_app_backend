@@ -348,6 +348,7 @@ exports.getLatestOrdersByFingerPrint = async (req, res) => {
     const orders = await Order.find({
       fingerPrint,
       user: tenantAdminId,
+      deleted: false,
     })
       .sort({ createdAt: -1 }) // newest first
       .limit(2)
@@ -771,6 +772,7 @@ exports.getAllOrders = async (req, res) => {
       user: ownerAdminId, // admin id ALWAYS
       status: status.toLowerCase(),
       createdAt: { $gte: fromDate, $lte: now },
+      deleted: false
     };
 
     const skip = (Number(page) - 1) * Number(limit);
