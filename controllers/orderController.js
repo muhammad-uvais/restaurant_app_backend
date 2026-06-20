@@ -13,7 +13,7 @@ exports.createOrder = async (req, res) => {
   try {
     const { tenantAdminId } = req;
 
-    const {
+    let {
       fingerPrint,
       customerName,
       customerPhone,
@@ -43,9 +43,10 @@ exports.createOrder = async (req, res) => {
 
     let resolvedUnit = null;
     let resolvedSection = null;
+    let existingOrder = null;
 
     // Resolve unit only for "Eat Here" orders
-    if (orderType === "Eat Here") {
+    if (unitId) {
       if (!unitId) {
         return res.status(400).json({
           message: "QR unitId is required for Eat Here",
@@ -65,20 +66,31 @@ exports.createOrder = async (req, res) => {
         return res.status(404).json({ message: "Unit not found" });
       }
 
-      // For rooms, ensure it is already booked
+      // For rooms, booking must already exist
       if (resolvedUnit.type === "ROOM") {
-        if (resolvedUnit.status !== "OCCUPIED") {
+        existingOrder = await Order.findOne({
+          "source.unitId": resolvedUnit._id,
+          orderType: "Room Stay",
+          "stay.enabled": true,
+          status: { $nin: ["completed", "cancelled"] },
+        });
+
+        if (!existingOrder) {
           return res.status(400).json({
-            message: "Room is not booked by admin",
+            message: "Room is not booked",
           });
         }
+
+        customerName = existingOrder.customerName;
+        customerPhone = existingOrder.customerPhone;
+        orderType = "Room Stay";
       }
     }
 
     // Find existing active order for the unit (Eat Here only)
-    let existingOrder = null;
 
     if (
+      !existingOrder &&
       orderType === "Eat Here" &&
       resolvedUnit?.currentOrderId
     ) {
@@ -107,6 +119,16 @@ exports.createOrder = async (req, res) => {
     menuItems.forEach((m) => {
       menuMap[m._id.toString()] = m;
     });
+
+    // Room QR orders must attach to existing booking
+    if (
+      resolvedUnit?.type === "ROOM" &&
+      !existingOrder
+    ) {
+      return res.status(400).json({
+        message: "Room is not booked",
+      });
+    }
 
     // Create a new order if none exists
     let isNewOrder = false;
@@ -326,6 +348,7 @@ exports.getLatestOrdersByFingerPrint = async (req, res) => {
     const orders = await Order.find({
       fingerPrint,
       user: tenantAdminId,
+      deleted: false,
     })
       .sort({ createdAt: -1 }) // newest first
       .limit(2)
@@ -474,9 +497,16 @@ exports.createOrderByAdminOrStaff = async (req, res) => {
         });
       }
 
-      // Room must already be booked
+      // For rooms, ensure an active Room Stay booking exists
       if (resolvedUnit.type === "ROOM") {
-        if (resolvedUnit.status !== "OCCUPIED") {
+        const activeRoomStay = await Order.findOne({
+          "source.unitId": resolvedUnit._id,
+          orderType: "Room Stay",
+          "stay.enabled": true,
+          status: { $nin: ["completed", "cancelled"] },
+        });
+
+        if (!activeRoomStay) {
           return res.status(400).json({
             message: "Room is not booked by admin",
           });
@@ -484,12 +514,29 @@ exports.createOrderByAdminOrStaff = async (req, res) => {
       }
 
       // Try to attach to existing active order
-      if (resolvedUnit.currentOrderId) {
+      if (resolvedUnit.type === "ROOM") {
+        existingOrder = await Order.findOne({
+          "source.unitId": resolvedUnit._id,
+          orderType: "Room Stay",
+          "stay.enabled": true,
+          status: { $nin: ["completed", "cancelled"] },
+        });
+      } else if (resolvedUnit.currentOrderId) {
         existingOrder = await Order.findOne({
           _id: resolvedUnit.currentOrderId,
           status: { $ne: "completed" },
         });
       }
+    }
+
+    if (
+      isDineIn &&
+      resolvedUnit?.type === "ROOM" &&
+      !existingOrder
+    ) {
+      return res.status(400).json({
+        message: "Room Stay booking not found",
+      });
     }
 
     // Create new order if no active order exists
@@ -725,6 +772,7 @@ exports.getAllOrders = async (req, res) => {
       user: ownerAdminId, // admin id ALWAYS
       status: status.toLowerCase(),
       createdAt: { $gte: fromDate, $lte: now },
+      deleted: false
     };
 
     const skip = (Number(page) - 1) * Number(limit);
@@ -802,9 +850,8 @@ exports.updateOrder = async (req, res) => {
     const finalOrderType =
       updates.orderType || existingOrder.orderType;
 
-    /* ==========================================
-       RELEASE TABLE IF MOVING AWAY FROM EAT HERE
-    ========================================== */
+
+    // RELEASE TABLE IF MOVING AWAY FROM EAT HERE
 
     if (
       existingOrder.orderType === "Eat Here" &&
@@ -816,6 +863,8 @@ exports.updateOrder = async (req, res) => {
       });
 
       if (restaurant && existingOrder.source?.unitId) {
+        let releasedUnit = null;
+        let releasedSection = null;
         for (const section of restaurant.sections) {
           const unit = section.units.id(
             existingOrder.source.unitId
@@ -830,6 +879,9 @@ exports.updateOrder = async (req, res) => {
               checkOutTime: null,
             };
 
+            releasedUnit = unit;
+            releasedSection = section;
+
             break;
           }
         }
@@ -841,10 +893,10 @@ exports.updateOrder = async (req, res) => {
         occupancyData = {
           user: existingOrder.user,
           orderId: existingOrder._id,
-          unitId: unit._id,
-          unitName: unit.name,
-          sectionName: section.name,
-          unitType: unit.type,
+          unitId: releasedUnit._id,
+          unitName: releasedUnit.name,
+          sectionName: releasedSection.name,
+          unitType: releasedUnit.type,
         };
       }
     }
@@ -1254,12 +1306,15 @@ exports.toggleItemReady = async (req, res) => {
   try {
     const { orderId, itemId } = req.params;
 
+    // Get current order
     const order = await Order.findById(orderId);
+
     if (!order) {
-      return res.status(404).json({ message: "Order not found" });
+      return res.status(404).json({
+        message: "Order not found",
+      });
     }
 
-    //  Prevent modification after completion
     if (["completed", "cancelled"].includes(order.status)) {
       return res.status(400).json({
         message: "Cannot modify items of a completed/cancelled order",
@@ -1271,34 +1326,68 @@ exports.toggleItemReady = async (req, res) => {
     );
 
     if (!item) {
-      return res.status(404).json({ message: "Item not found" });
+      return res.status(404).json({
+        message: "Item not found",
+      });
     }
 
-    //  Toggle
-    item.isReady = !item.isReady;
+    const newReadyState = !item.isReady;
 
-    order.markModified("items");
+    // Atomic item update
+    let updatedOrder = await Order.findOneAndUpdate(
+      {
+        _id: orderId,
+        "items._id": itemId,
+      },
+      {
+        $set: {
+          "items.$.isReady": newReadyState,
+        },
+      },
+      {
+        new: true,
+      }
+    );
 
-    // STATUS RECALC
-    const totalItems = order.items.length;
-    const readyItems = order.items.filter(i => i.isReady).length;
+    // Recalculate status
+    const totalItems = updatedOrder.items.length;
+    const readyItems = updatedOrder.items.filter(
+      (i) => i.isReady
+    ).length;
+
+    let newStatus = "pending";
 
     if (readyItems === 0) {
-      order.status = "pending";
+      newStatus = "pending";
     } else if (readyItems < totalItems) {
-      order.status = "preparing";
+      newStatus = "preparing";
     } else {
-      order.status = "ready";
+      newStatus = "ready";
     }
 
-    const updatedOrder = await order.save();
+    // Update status only if changed
+    if (updatedOrder.status !== newStatus) {
+      updatedOrder = await Order.findByIdAndUpdate(
+        orderId,
+        {
+          status: newStatus,
+        },
+        {
+          new: true,
+        }
+      );
+    }
 
-    orderEmitter.emit("orderUpdated", updatedOrder);
+    orderEmitter.emit("orderUpdated", {
+      user: updatedOrder.user,
+      action: "ITEM_READY_TOGGLED",
+      order: updatedOrder.toObject(),
+    });
 
     return res.status(200).json(updatedOrder);
-
   } catch (error) {
     console.error("Toggle item ready error:", error);
+
     return res.status(500).json({
       message: error.message,
     });
@@ -1306,20 +1395,93 @@ exports.toggleItemReady = async (req, res) => {
 };
 
 // Delete order
-exports.cancelOrder = async (req, res) => {
+exports.deleteOrder = async (req, res) => {
   try {
     const { orderId } = req.params;
 
-    const order = await Order.findByIdAndDelete(orderId);
+    const order = await Order.findById(orderId);
 
     if (!order) {
-      return res.status(404).json({ message: "Order not found" });
+      return res.status(404).json({
+        message: "Order not found",
+      });
     }
 
-    res.json({ message: "Admin cancelled order successfully" });
+    // Soft delete
+    order.deleted = true;
+    await order.save();
+
+    // If order is attached to a unit, free that unit
+    if (order.source?.unitId) {
+      const restaurant = await Restaurant.findOne({
+        "sections.units._id": order.source.unitId,
+        deleted: false,
+      });
+
+      if (restaurant) {
+        let targetUnit = null;
+        let sectionName = null;
+
+        for (const section of restaurant.sections) {
+          const unit = section.units.id(
+            order.source.unitId
+          );
+
+          if (unit) {
+            targetUnit = unit;
+            sectionName = section.name;
+            break;
+          }
+        }
+
+        if (
+          targetUnit &&
+          targetUnit.currentOrderId?.toString() ===
+            order._id.toString()
+        ) {
+          targetUnit.status = "AVAILABLE";
+
+          targetUnit.currentOrderId = null;
+
+          targetUnit.occupancy = {
+            checkInTime: null,
+            checkOutTime: new Date(),
+          };
+
+          await restaurant.save();
+
+          occupancyEmitter.emit(
+            "occupancyChanged",
+            {
+              user: restaurant.user,
+              action:
+                targetUnit.type === "ROOM"
+                  ? "ROOM_VACATED"
+                  : "TABLE_VACATED",
+              unitId: targetUnit._id,
+              orderId: order._id,
+              sectionName,
+              unitName: targetUnit.name,
+            }
+          );
+        }
+      }
+    }
+
+    return res.json({
+      message:
+        "Order deleted successfully",
+    });
+
   } catch (error) {
-    console.error("Error cancelling order:", error);
-    res.status(500).json({ message: "Server error" });
+    console.error(
+      "Error deleting order:",
+      error
+    );
+
+    return res.status(500).json({
+      message: "Server error",
+    });
   }
 };
 
@@ -1396,16 +1558,21 @@ exports.billOrder = async (req, res) => {
 
     await order.save();
 
-    //====================================
+    orderEmitter.emit("orderUpdated", {
+      action: "ORDER_BILLED",
+      order: order.toObject(),
+    });
+
     //  HANDLE UNIT ONLY FOR TABLE / ROOM
-    //====================================
     if (order.source.type === "TABLE" || order.source.type === "ROOM") {
       let resolvedUnit = null;
+      let resolvedSection = null;
 
       for (const section of restaurant.sections) {
         const unit = section.units.id(order.source.unitId);
         if (unit) {
           resolvedUnit = unit;
+          resolvedSection = section;
           break;
         }
       }
@@ -1414,6 +1581,19 @@ exports.billOrder = async (req, res) => {
         resolvedUnit.status = "BILLED";
 
         await restaurant.save();
+
+        occupancyEmitter.emit("occupancyChanged", {
+          action: "UNIT_BILLED",
+          user: order.user,
+          orderId: order._id,
+          unitId: resolvedUnit._id,
+          unitName: resolvedUnit.name,
+          sectionId: resolvedSection._id,
+          sectionName: resolvedSection.name,
+          unitType: resolvedUnit.type,
+          status: resolvedUnit.status,
+          completedAt: order.completedAt,
+        });
       }
     }
 
@@ -1543,10 +1723,16 @@ exports.moveOrder = async (req, res) => {
     await restaurant.save();
 
     occupancyEmitter.emit("occupancyChanged", {
-      action: "ORDER_MOVED",
-      fromUnitId: oldTable._id,
-      toUnitId: newTable._id,
+      user: restaurant.user,
+      action: "UNIT_MOVED",
+      fromUnitId: oldUnit._id,
+      toUnitId: targetUnit._id,
       orderId: order._id,
+    });
+
+    orderEmitter.emit("orderUpdated", {
+      user: order.user,
+      order: order.toObject(),
     });
 
     return res.json({
@@ -1640,11 +1826,13 @@ exports.payOrder = async (req, res) => {
       }
 
       let resolvedUnit = null;
+      let resolvedSection = null;
 
       for (const section of restaurant.sections) {
         const unit = section.units.id(order.source.unitId);
         if (unit) {
           resolvedUnit = unit;
+          resolvedSection = section;
           break;
         }
       }
@@ -1669,17 +1857,20 @@ exports.payOrder = async (req, res) => {
         "occupancyChanged",
         {
           user: restaurant.user,
-          action: "TABLE_RELEASED",
+          action:
+            order.source.type === "ROOM"
+              ? "ROOM_RELEASED"
+              : "TABLE_RELEASED",
           unitId: resolvedUnit._id,
           orderId: order._id,
-          sectionName: resolvedSection,
+          sectionName: resolvedSection.name,
           unitName: resolvedUnit.name,
         }
       );
     }
 
     await order.save();
-    orderEmitter.emit("orderUpdated", updatedOrder.toObject());
+    orderEmitter.emit("orderUpdated", order.toObject());
 
 
     return res.status(200).json({

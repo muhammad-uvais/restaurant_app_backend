@@ -9,6 +9,80 @@ const path = require("path");
 const logoPath = path.join(__dirname, "../assets/logo.jpeg");
 const occupancyEmitter = require("../events/occupancyEvents");
 
+// QR Info
+exports.getQrInfo = async (req, res) => {
+  try {
+    const { unitId } = req.query;
+
+    if (!unitId) {
+      return res.status(400).json({
+        message: "unitId is required",
+      });
+    }
+
+    const restaurant = await Restaurant.findOne({
+      deleted: false,
+      "sections.units._id": unitId,
+    }).lean();
+
+    if (!restaurant) {
+      return res.status(404).json({
+        message: "Unit not found",
+      });
+    }
+
+    let unit = null;
+
+    for (const section of restaurant.sections) {
+      const found = section.units.find(
+        (u) => u._id.toString() === unitId,
+      );
+
+      if (found) {
+        unit = found;
+        break;
+      }
+    }
+
+    if (!unit) {
+      return res.status(404).json({
+        message: "Unit not found",
+      });
+    }
+
+    // TABLE QR
+    if (unit.type === "TABLE") {
+      return res.status(200).json({
+        unitId,
+        unitType: "TABLE",
+        requiresCustomerInfo: true,
+      });
+    }
+
+    // ROOM QR
+    const bookingOrder = await Order.findOne({
+      unitId,
+      orderType: "Room Stay",
+      status: { $ne: "Completed" },
+    }).lean();
+
+    return res.status(200).json({
+      unitId,
+      unitType: "ROOM",
+      booked: !!bookingOrder,
+      requiresCustomerInfo: false,
+      customerName: bookingOrder?.customerName || null,
+    });
+  } catch (err) {
+    console.error("getQrInfo error:", err);
+
+    return res.status(500).json({
+      message: "Server error",
+      error: err.message,
+    });
+  }
+};
+
 // Retrieve restaurant details for clients based on domain
 exports.getPublicRestaurant = async (req, res) => {
   try {
@@ -673,7 +747,7 @@ exports.createSectionsAndUnits = async (req, res) => {
 // Update Section
 exports.updateSections = async (req, res) => {
   try {
-    const { sectionUpdates = [], roomUpdates = [] } = req.body;
+    const { sectionUpdates = [], roomUpdates = [], unitUpdates = [] } = req.body;
 
     const restaurant = await Restaurant.findOne({
       user: req.user._id,
@@ -745,6 +819,30 @@ exports.updateSections = async (req, res) => {
           Number(
             roomCategory.priceConfig.pricePerNight
           );
+      }
+    }
+
+    // UNIT ACTIVE/INACTIVE UPDATE (ROOM/TABLE)
+    for (const unitUpdate of unitUpdates) {
+      const { unitId, isActive } = unitUpdate;
+
+      let targetUnit = null;
+
+      for (const section of restaurant.sections) {
+        const unit = section.units.id(unitId);
+
+        if (unit) {
+          targetUnit = unit;
+          break;
+        }
+      }
+
+      if (!targetUnit) {
+        continue;
+      }
+
+      if (typeof isActive === "boolean") {
+        targetUnit.isActive = isActive;
       }
     }
 

@@ -7,6 +7,9 @@ const { authenticate } = require("../middleware/authMiddleware");
 const upload = require("../middleware/multer");
 const { authorizeRoles } = require("../middleware/roleMiddleware");
 
+// Public: qr info
+router.get("/public/qr-info", restaurantController.getQrInfo);
+
 // Public: Get restaurant details using tenant context (QR / domain based)
 router.get("/public", getTenant, restaurantController.getPublicRestaurant);
 
@@ -29,13 +32,13 @@ router.delete("/", authenticate, authorizeRoles("superadmin"), restaurantControl
 router.post("/categories", authenticate, authorizeRoles("admin"), restaurantController.createCategories);
 
 // Admin: Rename category
-router.patch("categories/:categoryId", authenticate, authorizeRoles("admin"), restaurantController.updateCategory);
+router.patch("/categories/:categoryId", authenticate, authorizeRoles("admin"), restaurantController.updateCategory);
 
 // Admin: Reorder menu categories
-router.post("categories/reorder", authenticate, authorizeRoles("admin"), restaurantController.reorderCategories);
+router.post("/categories/reorder", authenticate, authorizeRoles("admin"), restaurantController.reorderCategories);
 
 // Admin: Delete category
-router.delete("categories/:categoryId", authenticate, authorizeRoles("admin"), restaurantController.deleteCategory);
+router.delete("/categories/:categoryId", authenticate, authorizeRoles("admin"), restaurantController.deleteCategory);
 
 // Admin: Create sections and units (tables/rooms)
 router.post("/sections", authenticate, authorizeRoles("admin"), restaurantController.createSectionsAndUnits);
@@ -50,7 +53,7 @@ router.delete("/sections/:sectionId", authenticate, authorizeRoles("admin"), res
 router.delete("/sections/units/:unitId", authenticate, authorizeRoles("admin"), restaurantController.deleteUnit);
 
 // Admin: Book a room (initialize stay)
-router.post("/room-booking", authenticate, authorizeRoles("admin"), restaurantController.createRoomBooking);
+router.post("/room-booking", authenticate, authorizeRoles("admin", "staff"), restaurantController.createRoomBooking);
 
 // Admin/Staff: Get live unit occupancy status (tables/rooms)
 router.get("/units/live-status", authenticate, authorizeRoles("admin", "staff"), restaurantController.getLiveOccupancy);
