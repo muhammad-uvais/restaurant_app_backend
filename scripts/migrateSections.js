@@ -123,7 +123,7 @@ const run = async () => {
               const roomName = `${100 + i}`;
 
               const qr = await generateAndUploadQR(
-                `${r.domain}/order?unitId=${unitId}`,
+                `${r.domain}/?unitId=${unitId}`,
                 logoPath,
                 roomName,
                 "ROOM"

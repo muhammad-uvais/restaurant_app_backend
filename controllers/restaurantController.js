@@ -692,7 +692,7 @@ exports.createSectionsAndUnits = async (req, res) => {
       const unitId = new mongoose.Types.ObjectId();
 
       const qr = await generateAndUploadQR(
-        `${domain}/order?unitId=${unitId}`,
+        `${domain}/?unitId=${unitId}`,
         logoPath,
         u.name,
         type
