@@ -101,14 +101,18 @@ exports.createOrder = async (req, res) => {
     }
 
     // Fetch menu items
+    const uniqueMenuItemIds = [
+      ...new Set(
+        items.map((i) => i.menuItemId.toString())
+      ),
+    ];
+
     const menuItems = await MenuItem.find({
-      _id: {
-        $in: items.map(i => i.menuItemId),
-      },
+      _id: { $in: uniqueMenuItemIds },
       visibility: "PUBLIC",
     });
 
-    if (menuItems.length !== items.length) {
+    if (menuItems.length !== uniqueMenuItemIds.length) {
       return res.status(403).json({
         message:
           "One or more items are not available for customer ordering",
@@ -1437,7 +1441,7 @@ exports.deleteOrder = async (req, res) => {
         if (
           targetUnit &&
           targetUnit.currentOrderId?.toString() ===
-            order._id.toString()
+          order._id.toString()
         ) {
           targetUnit.status = "AVAILABLE";
 
