@@ -87,7 +87,7 @@ const run = async () => {
               const tableName = `T${i}`;
 
               const qr = await generateAndUploadQR(
-                `${r.domain}/order?unitId=${unitId}`,
+                `${r.domain}/?unitId=${unitId}`,
                 logoPath,
                 tableName,
                 "TABLE"
