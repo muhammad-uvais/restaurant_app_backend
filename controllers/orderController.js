@@ -1631,10 +1631,14 @@ exports.moveOrder = async (req, res) => {
     const { unitId } = req.body;
 
     const order = await Order.findById(orderId);
-    if (!order) return res.status(404).json({ message: "Order not found" });
+    if (!order) {
+      return res.status(404).json({ message: "Order not found" });
+    }
 
     if (["completed", "cancelled"].includes(order.status)) {
-      return res.status(400).json({ message: "Cannot move this order" });
+      return res.status(400).json({
+        message: "Cannot move this order",
+      });
     }
 
     const restaurant = await Restaurant.findOne({
@@ -1642,15 +1646,25 @@ exports.moveOrder = async (req, res) => {
       deleted: false,
     });
 
+    if (!restaurant) {
+      return res.status(404).json({
+        message: "Restaurant not found",
+      });
+    }
+
     let oldUnit = null;
     let targetUnit = null;
     let targetSection = null;
 
     for (const section of restaurant.sections) {
       for (const unit of section.units) {
-        if (unit._id.toString() === order.source.unitId?.toString()) {
+        if (
+          unit._id.toString() ===
+          order.source.unitId?.toString()
+        ) {
           oldUnit = unit;
         }
+
         if (unit._id.toString() === unitId) {
           targetUnit = unit;
           targetSection = section.name;
@@ -1659,18 +1673,29 @@ exports.moveOrder = async (req, res) => {
     }
 
     if (!targetUnit) {
-      return res.status(404).json({ message: "Target unit not found" });
+      return res.status(404).json({
+        message: "Target unit not found",
+      });
     }
 
     // SAME UNIT
-    if (oldUnit && oldUnit._id.toString() === unitId) {
-      return res.status(400).json({ message: "Already in this unit" });
+    if (
+      oldUnit &&
+      oldUnit._id.toString() === unitId
+    ) {
+      return res.status(400).json({
+        message: "Already in this unit",
+      });
     }
 
     // CROSS TYPE BLOCK
-    if (oldUnit && oldUnit.type !== targetUnit.type) {
+    if (
+      oldUnit &&
+      oldUnit.type !== targetUnit.type
+    ) {
       return res.status(400).json({
-        message: "Only TABLE→TABLE and ROOM→ROOM shifting allowed",
+        message:
+          "Only TABLE→TABLE and ROOM→ROOM shifting allowed",
       });
     }
 
@@ -1680,6 +1705,19 @@ exports.moveOrder = async (req, res) => {
         message: "Target unit already occupied",
       });
     }
+
+    // ✅ Preserve old occupancy before clearing it
+    const oldOccupancy = oldUnit?.occupancy
+      ? {
+          checkInTime:
+            oldUnit.occupancy.checkInTime,
+          checkOutTime:
+            oldUnit.occupancy.checkOutTime,
+        }
+      : {
+          checkInTime: null,
+          checkOutTime: null,
+        };
 
     // OLD CLEANUP
     if (oldUnit) {
@@ -1697,23 +1735,30 @@ exports.moveOrder = async (req, res) => {
 
     if (targetUnit.type === "TABLE") {
       targetUnit.occupancy = {
-        checkInTime: oldUnit?.occupancy?.checkInTime || new Date(),
+        checkInTime:
+          oldOccupancy.checkInTime ||
+          new Date(),
         checkOutTime: null,
       };
     }
 
     if (targetUnit.type === "ROOM") {
-      // update pricing only
+      // Update pricing only
       if (order.stay?.enabled) {
         order.stay.pricing.rate =
-          targetUnit.roomCategory?.priceConfig?.pricePerNight || 0;
+          targetUnit.roomCategory?.priceConfig
+            ?.pricePerNight || 0;
 
         order.stay.category.name =
-          targetUnit.roomCategory?.name || null;
+          targetUnit.roomCategory?.name ||
+          null;
       }
 
       targetUnit.occupancy = {
-        checkInTime: order.stay?.checkInTime || new Date(),
+        checkInTime:
+          oldOccupancy.checkInTime ||
+          order.stay?.checkInTime ||
+          new Date(),
         checkOutTime: null,
       };
     }
@@ -1726,13 +1771,16 @@ exports.moveOrder = async (req, res) => {
     await order.save();
     await restaurant.save();
 
-    occupancyEmitter.emit("occupancyChanged", {
-      user: restaurant.user,
-      action: "UNIT_MOVED",
-      fromUnitId: oldUnit._id,
-      toUnitId: targetUnit._id,
-      orderId: order._id,
-    });
+    occupancyEmitter.emit(
+      "occupancyChanged",
+      {
+        user: restaurant.user,
+        action: "UNIT_MOVED",
+        fromUnitId: oldUnit?._id,
+        toUnitId: targetUnit._id,
+        orderId: order._id,
+      }
+    );
 
     orderEmitter.emit("orderUpdated", {
       user: order.user,
@@ -1743,10 +1791,11 @@ exports.moveOrder = async (req, res) => {
       message: "Order shifted successfully",
       order,
     });
-
   } catch (err) {
     console.error(err);
-    res.status(500).json({ message: err.message });
+    return res.status(500).json({
+      message: err.message,
+    });
   }
 };
 
