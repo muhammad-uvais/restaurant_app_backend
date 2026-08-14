@@ -8,6 +8,7 @@ const generateAndUploadQR = require("../utils/generateQR")
 const path = require("path");
 const logoPath = path.join(__dirname, "../assets/logo.jpeg");
 const occupancyEmitter = require("../events/occupancyEvents");
+const restaurantEmitter = require("../events/restaurantEvents")
 
 // QR Info
 exports.getQrInfo = async (req, res) => {
@@ -232,6 +233,11 @@ exports.updateRestaurant = async (req, res) => {
 
     await restaurant.save();
 
+    restaurantEmitter.emit("restaurantUpdated", {
+      action: "RESTAURANT_UPDATED",
+      user: restaurant.user
+    });
+
     return res.status(200).json({
       message: "Restaurant updated successfully",
       restaurant,
@@ -311,6 +317,11 @@ exports.updateRestaurantGST = async (req, res) => {
 
     await restaurant.save();
 
+    restaurantEmitter.emit("restaurantUpdated", {
+      action: "GST_UPDATED",
+      user: restaurant.user
+    });
+
     return res.status(200).json({
       message:
         "GST settings updated successfully",
@@ -356,6 +367,12 @@ exports.updateRestaurantStatus = async (req, res) => {
     restaurant.isOpen = isOpen;
     restaurant.updatedAt = new Date();
     await restaurant.save();
+
+    restaurantEmitter.emit("restaurantUpdated", {
+      action: "STATUS_UPDATED",
+      user: restaurant.user
+    });
+
 
     res.status(200).json({
       message: `Restaurant is now ${isOpen ? "open" : "closed"}.`,
@@ -437,6 +454,11 @@ exports.createCategories = async (req, res) => {
 
     await restaurant.save();
 
+    restaurantEmitter.emit("restaurantUpdated", {
+      action: "CATEGORY_CREATED",
+      user: restaurant.user
+    });
+
     return res.status(201).json({
       message: `${newCategories.length} categories added successfully`,
       categories: restaurant.categories,
@@ -479,6 +501,11 @@ exports.updateCategory = async (req, res) => {
     category.name = newName;
 
     await restaurant.save();
+
+    restaurantEmitter.emit("restaurantUpdated", {
+      action: "CATEGORY_UPDATED",
+      user: restaurant.user
+    });
 
     await MenuItem.updateMany(
       {
@@ -548,6 +575,12 @@ exports.reorderCategories = async (req, res) => {
     });
 
     await restaurant.save();
+
+    restaurantEmitter.emit("restaurantUpdated", {
+      action: "CATEGORIES_REORDERED",
+      user: restaurant.user
+    });
+
     res.json({
       message: "Categories reordered successfully",
       categories: restaurant.categories,
@@ -586,6 +619,11 @@ exports.deleteCategory = async (req, res) => {
     category.deleteOne();
 
     await restaurant.save();
+
+    restaurantEmitter.emit("restaurantUpdated", {
+      action: "CATEGORY_DELETED",
+      user: restaurant.user
+    });
 
     await MenuItem.updateMany(
       {
@@ -730,6 +768,11 @@ exports.createSectionsAndUnits = async (req, res) => {
 
     await restaurant.save();
 
+    restaurantEmitter.emit("restaurantUpdated", {
+      action: "SECTION(s)/UNIT(s)_CREATED",
+      user: restaurant.user
+    });
+
     return res.status(201).json({
       message: `${newUnits.length} ${type}(s) added successfully`,
       units: newUnits,
@@ -848,6 +891,11 @@ exports.updateSections = async (req, res) => {
 
     await restaurant.save();
 
+    restaurantEmitter.emit("restaurantUpdated", {
+      action: "SECTION/UNIT_UPDATED",
+      user: restaurant.user
+    });
+
     return res.status(200).json({
       message:
         "Sections and room categories updated successfully",
@@ -919,6 +967,11 @@ exports.deleteSection = async (req, res) => {
 
     await restaurant.save();
 
+    restaurantEmitter.emit("restaurantUpdated", {
+      action: "SECTION_DELETED",
+      user: restaurant.user
+    });
+
     return res.status(200).json({
       message:
         "Section and all units deleted successfully",
@@ -987,6 +1040,11 @@ exports.deleteUnit = async (req, res) => {
     foundUnit.deleteOne();
 
     await restaurant.save();
+
+    restaurantEmitter.emit("restaurantUpdated", {
+      action: "UNIT_DELETED",
+      user: restaurant.user
+    });
 
     return res.status(200).json({
       message: "Unit deleted successfully",
