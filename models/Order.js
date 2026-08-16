@@ -196,6 +196,28 @@ const orderSchema = new mongoose.Schema(
       default: null,
     },
 
+    advancePayments: {
+      type: [
+        {
+          amount: {
+            type: Number,
+            required: true,
+            min: 0,
+          },
+          paymentMethod: {
+            type: String,
+            enum: ["CASH", "UPI", "CARD"],
+            required: true,
+          },
+          paidAt: {
+            type: Date,
+            default: Date.now,
+          },
+        },
+      ],
+      default: [],
+    },
+
     paymentMethods: {
       type: [
         {
