@@ -1068,12 +1068,33 @@ exports.createRoomBooking = async (req, res) => {
       unitId,
       customerName,
       customerPhone,
+      advancePayments = [],
     } = req.body;
 
     if (!unitId) {
       return res.status(400).json({
         message: "unitId is required",
       });
+    }
+
+    if (!Array.isArray(advancePayments)) {
+      return res.status(400).json({
+        message: "advancePayments must be an array",
+      });
+    }
+
+    for (const payment of advancePayments) {
+      if (!payment.amount || payment.amount <= 0) {
+        return res.status(400).json({
+          message: "Advance payment amount must be greater than 0",
+        });
+      }
+
+      if (!["CASH", "UPI", "CARD"].includes(payment.paymentMethod)) {
+        return res.status(400).json({
+          message: "Invalid advance payment method",
+        });
+      }
     }
 
     const restaurant = await Restaurant.findOne({
@@ -1147,6 +1168,8 @@ exports.createRoomBooking = async (req, res) => {
       totalAmount: 0,
 
       orderType: "Room Stay",
+
+      advancePayments,
 
       source: {
         restaurantId: restaurant._id,
