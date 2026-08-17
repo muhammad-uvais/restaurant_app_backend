@@ -89,7 +89,7 @@ exports.addMenuItems = async (req, res) => {
       visibility,
       discount, // for single items
       comboPrice, // for combo items
-      comboItems, // array of items in combo [{menuItemId, variant?, quantity}]
+      comboItems, // array of items in combo
     } = req.body;
 
     let image = null;
