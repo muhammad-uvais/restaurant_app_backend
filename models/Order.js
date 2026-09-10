@@ -28,12 +28,12 @@ const orderSchema = new mongoose.Schema(
 
     customerName: {
       type: String,
-      required: true,
+      default: "N/A"
     },
 
     customerPhone: {
       type: String,
-      required: true,
+      default: "N/A"
     },
 
     address: String,
